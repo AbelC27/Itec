@@ -1,17 +1,28 @@
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { toBase64, fromBase64 } from "lib0/buffer";
-import { createClient } from "@/lib/supabase/client";
 import type {
   AwarenessUserState,
   DocUpdatePayload,
   PresenceState,
 } from "@/types/collaborative";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 
 const THROTTLE_MS = 80;
 const BASE_RETRY_MS = 1000;
 const MAX_RETRY_MS = 30000;
+
+// Singleton Supabase client dedicated to Realtime (avoids multiple GoTrueClient warnings)
+let _realtimeClient: SupabaseClient | null = null;
+function getRealtimeClient(): SupabaseClient {
+  if (!_realtimeClient) {
+    _realtimeClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+  }
+  return _realtimeClient;
+}
 
 export class SupabaseProvider {
   readonly awareness: Awareness;
@@ -20,8 +31,8 @@ export class SupabaseProvider {
   private readonly doc: Y.Doc;
   private readonly documentId: string;
   private readonly profile: { id: string; username: string; avatar_color_hex: string };
-  private readonly supabase = createClient();
-  private readonly channel: RealtimeChannel;
+  private readonly supabase: SupabaseClient = getRealtimeClient();
+  private channel: RealtimeChannel | null = null;
   private readonly clientId: number;
 
   private retryCount = 0;
@@ -65,7 +76,7 @@ export class SupabaseProvider {
         clientId: this.clientId,
       };
 
-      this.channel.send({
+      this.channel?.send({
         type: "broadcast",
         event: "doc-update",
         payload,
@@ -80,9 +91,28 @@ export class SupabaseProvider {
     };
     this.awareness.on("update", this.handleAwarenessUpdate);
 
-    // --- Create channel and subscribe (Task 3.1 + 3.3 + 3.4) ---
+    // Channel setup is deferred — call connect() to start
+  }
+
+  /** Start the Realtime connection. Call this after construction. */
+  connect(): void {
+    if (this.destroyed) return;
+    this.setupChannel();
+  }
+
+  // ─── Channel setup with fresh instance ───
+
+  private setupChannel(): void {
+    if (this.destroyed) return;
+
+    // Remove old channel if it exists
+    if (this.channel) {
+      this.supabase.removeChannel(this.channel);
+      this.channel = null;
+    }
+
     this.channel = this.supabase
-      .channel(`doc:${documentId}`)
+      .channel(`doc:${this.documentId}`)
       .on("broadcast", { event: "doc-update" }, (message) => {
         this.handleRemoteDocUpdate(message.payload as DocUpdatePayload);
       })
@@ -96,12 +126,6 @@ export class SupabaseProvider {
         this.handlePresenceLeave(leftPresences as PresenceState[]);
       });
 
-    this.subscribeToChannel();
-  }
-
-  // ─── Task 3.4: Channel subscription with retry ───
-
-  private subscribeToChannel(): void {
     this.channel.subscribe((status, err) => {
       if (this.destroyed) return;
 
@@ -112,10 +136,8 @@ export class SupabaseProvider {
         // Track presence on connect
         this.trackPresence();
 
-        // If reconnecting, broadcast full state for sync
-        if (this.retryCount > 0 || this.connected) {
-          this.broadcastFullState();
-        }
+        // Broadcast full state for sync
+        this.broadcastFullState();
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         this.connected = false;
         console.error(
@@ -141,13 +163,7 @@ export class SupabaseProvider {
     this.retryTimeout = setTimeout(() => {
       this.retryTimeout = null;
       if (this.destroyed) return;
-
-      // Unsubscribe before resubscribing
-      this.channel.unsubscribe().then(() => {
-        if (!this.destroyed) {
-          this.subscribeToChannel();
-        }
-      });
+      this.setupChannel();
     }, delay);
   }
 
@@ -160,7 +176,7 @@ export class SupabaseProvider {
       clientId: this.clientId,
     };
 
-    this.channel.send({
+    this.channel?.send({
       type: "broadcast",
       event: "doc-update",
       payload,
@@ -202,7 +218,7 @@ export class SupabaseProvider {
       selection: localState.selection,
     };
 
-    this.channel.track(presencePayload);
+    this.channel?.track(presencePayload);
   }
 
   private throttledTrack(): void {
@@ -223,7 +239,7 @@ export class SupabaseProvider {
   }
 
   private handlePresenceSync(): void {
-    if (this.destroyed) return;
+    if (this.destroyed || !this.channel) return;
 
     const state = this.channel.presenceState<PresenceState>();
 
@@ -348,9 +364,12 @@ export class SupabaseProvider {
     this.awareness.off("update", this.handleAwarenessUpdate);
 
     // Untrack, unsubscribe, and remove channel
-    this.channel.untrack();
-    this.channel.unsubscribe();
-    this.supabase.removeChannel(this.channel);
+    if (this.channel) {
+      this.channel.untrack();
+      this.channel.unsubscribe();
+      this.supabase.removeChannel(this.channel);
+      this.channel = null;
+    }
 
     this.connected = false;
   }

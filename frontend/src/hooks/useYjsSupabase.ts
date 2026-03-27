@@ -35,12 +35,18 @@ export function useYjsSupabase(
     providerRef.current = provider;
     setReady(true);
 
+    // Defer connection to survive React strict mode unmount/remount cycle
+    const connectTimer = setTimeout(() => {
+      provider.connect();
+    }, 0);
+
     // Poll connection status
     const interval = setInterval(() => {
       setIsConnected(provider.connected);
     }, 500);
 
     return () => {
+      clearTimeout(connectTimer);
       clearInterval(interval);
       // CRITICAL cleanup order: provider → awareness → yDoc
       provider.destroy();
