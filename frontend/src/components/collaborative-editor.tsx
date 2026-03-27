@@ -66,18 +66,20 @@ function EditorWithYjs({
   }, []);
 
   return (
-    <div style={{ height: "100%" }}>
-      {!yjsState && (
-        <div style={{ padding: 16, color: "#888" }}>Connecting…</div>
-      )}
-      <Editor
-        height="100%"
-        defaultLanguage="typescript"
-        onMount={handleEditorMount}
-        options={{
-          minimap: { enabled: false },
-        }}
-      />
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "4px 12px", fontSize: 12, background: yjsState?.isConnected ? "#22c55e" : "#ef4444", color: "#fff" }}>
+        {!yjsState ? "Initializing…" : yjsState.isConnected ? `Connected — Room: itecify-${documentId}` : "Disconnected — waiting for server on ws://localhost:4444"}
+      </div>
+      <div style={{ flex: 1 }}>
+        <Editor
+          height="100%"
+          defaultLanguage="typescript"
+          onMount={handleEditorMount}
+          options={{
+            minimap: { enabled: false },
+          }}
+        />
+      </div>
     </div>
   );
 }
