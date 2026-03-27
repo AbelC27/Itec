@@ -7,6 +7,10 @@ dist/
 build/
 *.egg
 
+#kiro
+.kiro/
+
+
 # Virtual environment
 backend/venv/
 
