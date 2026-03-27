@@ -1,28 +1,20 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { MonacoBinding } from "y-monaco";
 import { useProfile } from "@/hooks/useProfile";
 import { useYjsSupabase } from "@/hooks/useYjsSupabase";
+import type * as monaco from "monaco-editor";
 
 interface CollaborativeEditorProps {
   documentId: string;
 }
 
-export default function CollaborativeEditor({ documentId }: CollaborativeEditorProps) {
+export default function CollaborativeEditor({
+  documentId,
+}: CollaborativeEditorProps) {
   const { profile, isLoading } = useProfile();
-  const bindingRef = useRef<MonacoBinding | null>(null);
-
-  // Clean up binding on unmount
-  useEffect(() => {
-    return () => {
-      if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-      }
-    };
-  }, []);
 
   if (isLoading || !profile) {
     return (
@@ -32,60 +24,52 @@ export default function CollaborativeEditor({ documentId }: CollaborativeEditorP
     );
   }
 
-  return <EditorWithYjs documentId={documentId} profile={profile} bindingRef={bindingRef} />;
+  return <EditorWithYjs documentId={documentId} profile={profile} />;
 }
 
 function EditorWithYjs({
   documentId,
   profile,
-  bindingRef,
 }: {
   documentId: string;
   profile: { id: string; username: string; avatar_color_hex: string };
-  bindingRef: React.MutableRefObject<MonacoBinding | null>;
 }) {
   const yjsState = useYjsSupabase(documentId, profile);
+  const bindingRef = useRef<MonacoBinding | null>(null);
+  const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
 
-  // Store yjsState in a ref so the cleanup effect can access the latest value
-  const yjsRef = useRef(yjsState);
-  yjsRef.current = yjsState;
-
-  // Clean up binding when yjsState changes (e.g., reconnect creates new doc)
+  // Create binding when BOTH editor and yjsState are ready
+  // Recreate when either changes
   useEffect(() => {
-    return () => {
-      if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-      }
-    };
-  }, [yjsState, bindingRef]);
+    if (!yjsState || !editor) return;
 
-  if (!yjsState) {
-    return (
-      <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        Connecting…
-      </div>
-    );
-  }
-
-  const handleEditorMount: OnMount = (editor) => {
-    const state = yjsRef.current;
-    if (!state) return;
-
-    const yText = state.yDoc.getText("content");
+    const yText = yjsState.yDoc.getText("content");
     const model = editor.getModel();
     if (!model) return;
 
-    bindingRef.current = new MonacoBinding(
+    const binding = new MonacoBinding(
       yText,
       model,
       new Set([editor]),
-      state.awareness
+      yjsState.awareness
     );
-  };
+    bindingRef.current = binding;
+
+    return () => {
+      binding.destroy();
+      bindingRef.current = null;
+    };
+  }, [yjsState, editor]);
+
+  const handleEditorMount: OnMount = useCallback((editorInstance) => {
+    setEditor(editorInstance);
+  }, []);
 
   return (
     <div style={{ height: "100%" }}>
+      {!yjsState && (
+        <div style={{ padding: 16, color: "#888" }}>Connecting…</div>
+      )}
       <Editor
         height="100%"
         defaultLanguage="typescript"
