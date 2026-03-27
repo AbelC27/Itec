@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import styles from "./signup.module.css";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -45,13 +46,57 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="flex flex-1 items-center justify-center px-4">
-      <div className="w-full max-w-sm space-y-6">
-        <h1 className="text-2xl font-bold text-center">Create your account</h1>
+    <main className={styles.page}>
+      <div className={styles.ambient} aria-hidden="true">
+        <div className={styles.network}>
+          <svg viewBox="0 0 560 360" role="presentation">
+            <g fill="none" stroke="currentColor" strokeWidth="2" opacity="0.7">
+              <path d="M30 58h120" />
+              <path d="M150 58v86" />
+              <path d="M150 144h94" />
+              <path d="M244 144v70" />
+              <path d="M244 214h82" />
+              <path d="M326 214v58" />
+              <path d="M326 272h96" />
+              <path d="M90 196h80" />
+              <path d="M170 196v92" />
+              <path d="M170 288h96" />
+            </g>
+            <g fill="currentColor" opacity="0.25">
+              <circle cx="150" cy="58" r="6" />
+              <circle cx="244" cy="144" r="6" />
+              <circle cx="326" cy="214" r="6" />
+              <circle cx="170" cy="288" r="6" />
+            </g>
+            <g fill="none" stroke="currentColor" strokeWidth="2" opacity="0.4">
+              <rect x="20" y="42" width="80" height="32" rx="10" />
+              <rect x="20" y="180" width="90" height="32" rx="10" />
+              <rect x="210" y="128" width="72" height="32" rx="10" />
+              <rect x="298" y="256" width="78" height="32" rx="10" />
+              <rect x="410" y="258" width="90" height="32" rx="10" />
+            </g>
+          </svg>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <label htmlFor="username" className="block text-sm font-medium">
+        <div className={styles.codeBlock}>
+          <pre>
+            {`async function FetchUser(id) {
+  const user = await db.users.findUnique({ id });
+  return user;
+}`}
+          </pre>
+        </div>
+      </div>
+
+      <section className={styles.panel}>
+        <header className={styles.header}>
+          <h1 className={styles.title}>Create account</h1>
+          <p className={styles.subtitle}>Start building with iTECify.</p>
+        </header>
+
+        <form onSubmit={handleSubmit} className={styles.form}>
+          <div className={styles.field}>
+            <label htmlFor="username" className={styles.label}>
               Username
             </label>
             <input
@@ -60,14 +105,14 @@ export default function SignupPage() {
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full rounded-[var(--radius-input)] border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-accent"
-              placeholder="johndoe"
+              className={styles.input}
+              placeholder="Choose a username"
             />
           </div>
 
-          <div className="space-y-2">
-            <label htmlFor="email" className="block text-sm font-medium">
-              Email
+          <div className={styles.field}>
+            <label htmlFor="email" className={styles.label}>
+              E-mail
             </label>
             <input
               id="email"
@@ -75,13 +120,13 @@ export default function SignupPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-[var(--radius-input)] border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-accent"
-              placeholder="you@example.com"
+              className={styles.input}
+              placeholder="Enter your e-mail"
             />
           </div>
 
-          <div className="space-y-2">
-            <label htmlFor="password" className="block text-sm font-medium">
+          <div className={styles.field}>
+            <label htmlFor="password" className={styles.label}>
               Password
             </label>
             <input
@@ -90,43 +135,50 @@ export default function SignupPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-[var(--radius-input)] border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-accent"
-              placeholder="••••••••"
+              className={styles.input}
+              placeholder="At least 8 characters"
             />
           </div>
 
           {error && (
-            <p className="text-sm text-red-400" role="alert">
+            <p className={styles.error} role="alert">
               {error}
             </p>
           )}
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full rounded-[var(--radius-input)] bg-accent py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isLoading ? (
-              <span className="inline-flex items-center gap-2">
-                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Creating account…
-              </span>
-            ) : (
-              "Sign Up"
-            )}
+          <button type="submit" disabled={isLoading} className={styles.submitButton}>
+            {isLoading ? "Creating account..." : "Register"}
           </button>
         </form>
 
-        <p className="text-center text-sm text-text-secondary">
+        <p className={styles.footerText}>
           Already have an account?{" "}
-          <Link href="/auth/login" className="text-accent hover:underline">
+          <Link href="/auth/login" className={styles.registerLink}>
             Log in
           </Link>
         </p>
+      </section>
+
+      <div className={styles.floatingPanel}>
+        <button type="button" className={styles.panelButton} aria-label="Maximize">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M7 17L17 7M9 7h8v8"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        <button type="button" className={`${styles.panelButton} ${styles.searchButton}`} aria-label="Search">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" strokeWidth="2" />
+            <path d="M16 16l4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </button>
       </div>
-    </div>
+    </main>
   );
 }
