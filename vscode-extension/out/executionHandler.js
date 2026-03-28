@@ -127,6 +127,14 @@ function executeCode(options) {
                         resolve();
                     }
                     break;
+                case "easter_egg":
+                    vscode.window.showInformationMessage(msg.data);
+                    outputChannel.appendLine("\n" +
+                        "╔══════════════════════════════════════╗\n" +
+                        "║   🎉 iTEC 2026 Easter Egg Found! 🎉  ║\n" +
+                        "║      You are a true explorer!        ║\n" +
+                        "╚══════════════════════════════════════╝");
+                    break;
             }
         });
         ws.on("error", () => {

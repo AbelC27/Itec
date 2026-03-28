@@ -18,10 +18,12 @@ SAFE_DEFAULT_NANO_CPUS: int = 500_000_000
 
 @dataclass
 class ResourceEstimate:
-    """Holds AI-determined resource limits for a Docker container."""
+    """Holds AI-determined resource limits and security analysis for a Docker container."""
 
     mem_limit: str
     nano_cpus: int
+    is_malicious: bool = False
+    security_reason: str = ""
 
 
 @dataclass

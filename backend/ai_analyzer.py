@@ -28,13 +28,17 @@ client = AsyncOpenAI(
 # Task 3.2: System prompt enforcing strict JSON-only output
 SYSTEM_PROMPT = (
     "You are a code complexity analyzer. Analyze the given code's time and space complexity "
-    "and estimate the Docker container resources needed to run it.\n\n"
+    "and estimate the Docker container resources needed to run it.\n"
+    "Also check for malicious intent: fork bombs, infinite loops, unauthorized file system access, "
+    "network abuse, or any dangerous operations.\n\n"
     "Respond with ONLY a raw JSON object. No markdown, no explanation, no code fences.\n\n"
-    "The JSON must contain exactly two fields:\n"
+    "The JSON must contain exactly these fields:\n"
     '- "mem_limit": one of "128m", "256m", "512m", "1g"\n'
-    '- "nano_cpus": an integer between 250000000 (0.25 CPU) and 2000000000 (2.0 CPU)\n\n'
+    '- "nano_cpus": an integer between 250000000 (0.25 CPU) and 2000000000 (2.0 CPU)\n'
+    '- "is_malicious": boolean, true if the code has malicious intent\n'
+    '- "security_reason": string, brief reason if malicious, empty string otherwise\n\n'
     "Example response:\n"
-    '{"mem_limit": "256m", "nano_cpus": 500000000}'
+    '{"mem_limit": "256m", "nano_cpus": 500000000, "is_malicious": false, "security_reason": ""}'
 )
 
 
@@ -43,6 +47,8 @@ def _safe_defaults() -> ResourceEstimate:
     return ResourceEstimate(
         mem_limit=SAFE_DEFAULT_MEM_LIMIT,
         nano_cpus=SAFE_DEFAULT_NANO_CPUS,
+        is_malicious=False,
+        security_reason="",
     )
 
 
@@ -75,6 +81,8 @@ async def analyze(code: str) -> ResourceEstimate:
         data = json.loads(content)
         mem_limit = data["mem_limit"]
         nano_cpus = data["nano_cpus"]
+        is_malicious = bool(data.get("is_malicious", False))
+        security_reason = str(data.get("security_reason", "")) if is_malicious else ""
 
         if mem_limit not in ALLOWED_MEM_LIMITS:
             logger.warning("LLM returned invalid mem_limit=%s — using safe defaults", mem_limit)
@@ -84,7 +92,12 @@ async def analyze(code: str) -> ResourceEstimate:
             logger.warning("LLM returned invalid nano_cpus=%s — using safe defaults", nano_cpus)
             return _safe_defaults()
 
-        return ResourceEstimate(mem_limit=mem_limit, nano_cpus=nano_cpus)
+        return ResourceEstimate(
+            mem_limit=mem_limit,
+            nano_cpus=nano_cpus,
+            is_malicious=is_malicious,
+            security_reason=security_reason,
+        )
 
     except Exception as exc:
         logger.warning("AI analysis failed (%s) — using safe defaults", exc)

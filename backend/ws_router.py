@@ -111,6 +111,14 @@ async def execute_code_ws(websocket: WebSocket, document_id: str) -> None:
             await manager.broadcast({"type": msg_type, "data": data}, document_id)
 
         docker_mgr = DockerIsolationManager()
+
+        # Easter egg check: broadcast celebratory message if trigger string is found
+        if "iTEC 2026" in code:
+            await manager.broadcast(
+                {"type": "easter_egg", "data": "🎉 You found the iTEC 2026 secret! 🎉"},
+                document_id,
+            )
+
         estimate = await docker_mgr.execute_streaming(language, code, accumulating_send)
 
         # Fire-and-forget DB insert (only if document_id provided and execution completed)

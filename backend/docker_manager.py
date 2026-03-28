@@ -51,6 +51,11 @@ class DockerIsolationManager:
         cpu_display = estimate.nano_cpus / 1_000_000_000
         await send("status", f"[AI] Allocated {estimate.mem_limit} RAM and {cpu_display} CPU.")
 
+        # Security Gate: block execution if AI detects malicious intent
+        if estimate.is_malicious:
+            await send("error", f"[SECURITY ALERT] {estimate.security_reason}")
+            return None
+
         container = None
         try:
             # Create container with AI-determined resource limits

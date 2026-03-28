@@ -13,7 +13,8 @@ export type WsMessage =
   | { type: "stdout"; data: string }
   | { type: "stderr"; data: string }
   | { type: "complete"; data: { execution_time: number; exit_code: number } }
-  | { type: "error"; data: string };
+  | { type: "error"; data: string }
+  | { type: "easter_egg"; data: string };
 
 export interface ExecutionOptions {
   language: string;
@@ -140,6 +141,17 @@ export function executeCode(options: ExecutionOptions): Promise<void> {
             settled = true;
             resolve();
           }
+          break;
+
+        case "easter_egg":
+          vscode.window.showInformationMessage(msg.data);
+          outputChannel.appendLine(
+            "\n" +
+              "╔══════════════════════════════════════╗\n" +
+              "║   🎉 iTEC 2026 Easter Egg Found! 🎉  ║\n" +
+              "║      You are a true explorer!        ║\n" +
+              "╚══════════════════════════════════════╝"
+          );
           break;
       }
     });
