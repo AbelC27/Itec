@@ -238,6 +238,7 @@ export async function explainError(
 export type AiChatRequest = {
   message: string;
   code: string;
+  history?: { role: string; content: string }[];
 };
 
 export type AiChatResponse = {
@@ -253,4 +254,77 @@ export async function sendAiChat(
     body: JSON.stringify(data),
     ...init,
   });
+}
+
+// ── AI Chat Sessions ─────────────────────────────────────────────────
+
+export type AiChatSession = {
+    id: string;
+    document_id: string;
+    title: string;
+    created_at: string;
+    updated_at: string;
+};
+
+export type AiChatMessageRecord = {
+    id: string;
+    session_id: string;
+    role: "user" | "assistant";
+    content: string;
+    created_at: string;
+};
+
+export async function getChatSessions(
+    documentId: string,
+    init?: RequestInit
+): Promise<AiChatSession[]> {
+    return fetchJson<AiChatSession[]>(`/api/chats/${documentId}/sessions`, init);
+}
+
+export async function createChatSession(
+    documentId: string,
+    title = "New Chat",
+    init?: RequestInit
+): Promise<AiChatSession> {
+    return fetchJson<AiChatSession>(`/api/chats/${documentId}/sessions`, {
+        method: "POST",
+        body: JSON.stringify({ document_id: documentId, title }),
+        ...init,
+    });
+}
+
+export async function deleteChatSession(
+    sessionId: string,
+    init?: RequestInit
+): Promise<void> {
+    return fetchJson<void>(`/api/chats/sessions/${sessionId}`, {
+        method: "DELETE",
+        ...init,
+    });
+}
+
+export async function getChatMessages(
+    sessionId: string,
+    init?: RequestInit
+): Promise<AiChatMessageRecord[]> {
+    return fetchJson<AiChatMessageRecord[]>(
+        `/api/chats/sessions/${sessionId}/messages`,
+        init
+    );
+}
+
+export async function saveChatMessage(
+    sessionId: string,
+    role: string,
+    content: string,
+    init?: RequestInit
+): Promise<AiChatMessageRecord> {
+    return fetchJson<AiChatMessageRecord>(
+        `/api/chats/sessions/${sessionId}/messages`,
+        {
+            method: "POST",
+            body: JSON.stringify({ role, content }),
+            ...init,
+        }
+    );
 }

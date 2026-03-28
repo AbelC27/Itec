@@ -14,8 +14,33 @@ import {
   pullDocumentContent,
   pushDocumentContent,
 } from "../lib/api";
+import { getWsBaseUrl, sendAiChat, ApiError, getChatSessions, createChatSession, deleteChatSession, getChatMessages, saveChatMessage } from "../lib/api";
+import type { AiChatSession } from "../lib/api";
 import type * as monaco from "monaco-editor";
 import styles from "./collaborative-editor.module.css";
+
+/** Extract code blocks from markdown-formatted AI replies. */
+function parseMessageParts(content: string): { type: "text" | "code"; value: string }[] {
+  const parts: { type: "text" | "code"; value: string }[] = [];
+  const regex = /```[\w]*\n?([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", value: content.slice(lastIndex, match.index).trim() });
+    }
+    parts.push({ type: "code", value: match[1].trim() });
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < content.length) {
+    const remaining = content.slice(lastIndex).trim();
+    if (remaining) parts.push({ type: "text", value: remaining });
+  }
+
+  return parts.length > 0 ? parts : [{ type: "text", value: content }];
+}
 
 interface CollaborativeEditorProps {
   documentId: string;
@@ -83,6 +108,81 @@ function EditorWithYjs({
   const [chatInput, setChatInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [activeTab, setActiveTab] = useState<"Terminal" | "History">("Terminal");
+
+  // ── Chat sessions state ────────────────────────────────────────────
+  const [chatSessions, setChatSessions] = useState<AiChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(true);
+
+  // Load chat sessions on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const sessions = await getChatSessions(documentId);
+        if (cancelled) return;
+        setChatSessions(sessions);
+        if (sessions.length > 0) {
+          setActiveSessionId(sessions[0].id);
+        }
+      } catch {
+        // Silently fail — sessions just won't load
+      } finally {
+        if (!cancelled) setIsLoadingSessions(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [documentId]);
+
+  // Load messages when active session changes
+  useEffect(() => {
+    if (!activeSessionId) {
+      setChatMessages([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const messages = await getChatMessages(activeSessionId);
+        if (cancelled) return;
+        setChatMessages(
+          messages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            createdAt: new Date(m.created_at).getTime(),
+          }))
+        );
+      } catch {
+        if (!cancelled) setChatMessages([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeSessionId]);
+
+  const handleNewChat = useCallback(async () => {
+    try {
+      const session = await createChatSession(documentId);
+      setChatSessions((prev) => [session, ...prev]);
+      setActiveSessionId(session.id);
+      setChatMessages([]);
+    } catch {
+      // Silently fail
+    }
+  }, [documentId]);
+
+  const handleDeleteChat = useCallback(async (sessionId: string) => {
+    try {
+      await deleteChatSession(sessionId);
+      setChatSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(null);
+        setChatMessages([]);
+      }
+    } catch {
+      // Silently fail
+    }
+  }, [activeSessionId]);
 
   // Hook up history
   const historyHook = useHistory(documentId);
@@ -336,6 +436,19 @@ function EditorWithYjs({
     const trimmed = chatInput.trim();
     if (!trimmed) return;
 
+    // Auto-create a session if none exists
+    let sessionId = activeSessionId;
+    if (!sessionId) {
+      try {
+        const session = await createChatSession(documentId, trimmed.slice(0, 40));
+        setChatSessions((prev) => [session, ...prev]);
+        setActiveSessionId(session.id);
+        sessionId = session.id;
+      } catch {
+        // Can't create session — fall back to local-only
+      }
+    }
+
     const now = Date.now();
     const userMessage: ChatMessage = {
       id: typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -350,10 +463,21 @@ function EditorWithYjs({
     setChatInput("");
     setIsSending(true);
 
+    // Persist user message to DB
+    if (sessionId) {
+      saveChatMessage(sessionId, "user", trimmed).catch(() => {});
+    }
+
     try {
+      const history = chatMessages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
       const { reply } = await sendAiChat({
         message: trimmed,
         code: editor?.getValue() ?? code,
+        history,
       });
 
       const assistantMessage: ChatMessage = {
@@ -365,6 +489,11 @@ function EditorWithYjs({
         createdAt: Date.now(),
       };
       setChatMessages((prev) => [...prev, assistantMessage]);
+
+      // Persist assistant message to DB
+      if (sessionId) {
+        saveChatMessage(sessionId, "assistant", reply).catch(() => {});
+      }
     } catch (err) {
       const errorContent =
         err instanceof ApiError
@@ -385,7 +514,7 @@ function EditorWithYjs({
     } finally {
       setIsSending(false);
     }
-  }, [chatInput, editor, code]);
+  }, [chatInput, editor, code, activeSessionId, documentId, chatMessages]);
 
   const handleChatKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -480,6 +609,16 @@ function EditorWithYjs({
                 onChange={handleMonacoChange}
                 options={{
                   minimap: { enabled: false },
+                  quickSuggestions: true,
+                  suggestOnTriggerCharacters: true,
+                  parameterHints: { enabled: true },
+                  wordBasedSuggestions: "currentDocument",
+                  autoClosingBrackets: "always",
+                  autoClosingQuotes: "always",
+                  autoIndent: "full",
+                  formatOnPaste: true,
+                  formatOnType: true,
+                  tabCompletion: "on",
                 }}
               />
             </div>
@@ -774,6 +913,90 @@ function EditorWithYjs({
         </section>
 
         <aside className={styles.aiPanel}>
+          {/* Chat session tabs */}
+          <div style={{
+            padding: "8px 12px",
+            borderBottom: "1px solid rgba(42, 61, 79, 0.2)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+            maxHeight: "140px",
+            overflowY: "auto",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+              <span style={{ fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.15em", color: "#94a3b8", fontWeight: 700 }}>
+                Chats
+              </span>
+              <button
+                type="button"
+                onClick={handleNewChat}
+                style={{
+                  background: "none",
+                  border: "1px solid rgba(0, 209, 255, 0.3)",
+                  borderRadius: "4px",
+                  color: "#80eaff",
+                  fontSize: "10px",
+                  padding: "2px 6px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "3px",
+                }}
+              >
+                <span className={styles.icon} style={{ fontSize: "12px" }}>add</span>
+                New
+              </button>
+            </div>
+            {isLoadingSessions ? (
+              <span style={{ fontSize: "10px", color: "#64748b" }}>Loading…</span>
+            ) : chatSessions.length === 0 ? (
+              <span style={{ fontSize: "10px", color: "#64748b" }}>No chats yet. Send a message to start.</span>
+            ) : (
+              chatSessions.map((session) => (
+                <div
+                  key={session.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "4px 8px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontSize: "10px",
+                    background: activeSessionId === session.id ? "rgba(0, 209, 255, 0.1)" : "transparent",
+                    border: activeSessionId === session.id ? "1px solid rgba(0, 209, 255, 0.2)" : "1px solid transparent",
+                    color: activeSessionId === session.id ? "#80eaff" : "#94a3b8",
+                    transition: "all 0.15s",
+                  }}
+                  onClick={() => setActiveSessionId(session.id)}
+                >
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                    {session.title}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteChat(session.id);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#64748b",
+                      cursor: "pointer",
+                      padding: "0 2px",
+                      fontSize: "12px",
+                      lineHeight: 1,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <span className={styles.icon} style={{ fontSize: "14px" }}>close</span>
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
           <div className={styles.aiHeader}>
             <div className={styles.avatar}>
               <img
@@ -792,18 +1015,137 @@ function EditorWithYjs({
             {chatMessages.length === 0 ? (
               <div className={styles.chatBubble}>No messages yet.</div>
             ) : (
-              chatMessages.map((message) => (
-                <div
-                  key={message.id}
-                  className={
-                    message.role === "user"
-                      ? `${styles.chatBubble} ${styles.chatBubbleUser}`
-                      : `${styles.chatBubble} ${styles.chatBubbleBot}`
-                  }
-                >
-                  {message.content}
-                </div>
-              ))
+              chatMessages.map((message) => {
+                const isUser = message.role === "user";
+                const parts = isUser ? null : parseMessageParts(message.content);
+
+                return (
+                  <div
+                    key={message.id}
+                    className={
+                      isUser
+                        ? `${styles.chatBubble} ${styles.chatBubbleUser}`
+                        : `${styles.chatBubble} ${styles.chatBubbleBot}`
+                    }
+                  >
+                    {isUser || !parts ? (
+                      message.content
+                    ) : (
+                      parts.map((part, i) =>
+                        part.type === "text" ? (
+                          <span key={i} style={{ whiteSpace: "pre-wrap" }}>{part.value}</span>
+                        ) : (
+                          <div key={i} style={{ marginTop: 6, marginBottom: 6 }}>
+                            <pre
+                              style={{
+                                margin: 0,
+                                padding: "8px 10px",
+                                borderRadius: "6px",
+                                background: "rgba(1, 22, 39, 0.8)",
+                                border: "1px solid rgba(42, 61, 79, 0.4)",
+                                fontSize: "11px",
+                                fontFamily: "'Fira Code', monospace",
+                                color: "#e2e8f0",
+                                whiteSpace: "pre-wrap",
+                                wordBreak: "break-word",
+                                overflowX: "auto",
+                              }}
+                            >
+                              {part.value}
+                            </pre>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (editor) {
+                                  // Smart Apply: replace entire editor content with the AI's complete updated file
+                                  const model = editor.getModel();
+                                  if (model) {
+                                    const fullRange = model.getFullModelRange();
+                                    editor.executeEdits("ai-smart-apply", [{
+                                      range: fullRange,
+                                      text: part.value,
+                                    }]);
+                                  }
+                                }
+                              }}
+                              style={{
+                                marginTop: "4px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                padding: "3px 8px",
+                                borderRadius: "4px",
+                                background: "rgba(80, 250, 123, 0.1)",
+                                border: "1px solid rgba(80, 250, 123, 0.3)",
+                                color: "#50fa7b",
+                                fontSize: "10px",
+                                fontFamily: "'Fira Code', monospace",
+                                cursor: "pointer",
+                                transition: "all 0.15s",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.08em",
+                              }}
+                            >
+                              <span className={styles.icon} style={{ fontSize: "12px" }}>
+                                auto_fix_high
+                              </span>
+                              Smart Apply
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (editor) {
+                                  const selection = editor.getSelection();
+                                  const position = editor.getPosition();
+                                  if (selection && !selection.isEmpty()) {
+                                    editor.executeEdits("ai-chat", [{
+                                      range: selection,
+                                      text: part.value,
+                                    }]);
+                                  } else if (position) {
+                                    editor.executeEdits("ai-chat", [{
+                                      range: {
+                                        startLineNumber: position.lineNumber,
+                                        startColumn: position.column,
+                                        endLineNumber: position.lineNumber,
+                                        endColumn: position.column,
+                                      },
+                                      text: part.value,
+                                    }]);
+                                  }
+                                }
+                              }}
+                              style={{
+                                marginTop: "4px",
+                                marginLeft: "4px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                padding: "3px 8px",
+                                borderRadius: "4px",
+                                background: "rgba(0, 209, 255, 0.1)",
+                                border: "1px solid rgba(0, 209, 255, 0.3)",
+                                color: "#80eaff",
+                                fontSize: "10px",
+                                fontFamily: "'Fira Code', monospace",
+                                cursor: "pointer",
+                                transition: "all 0.15s",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.08em",
+                              }}
+                            >
+                              <span className={styles.icon} style={{ fontSize: "12px" }}>
+                                add
+                              </span>
+                              Insert at Cursor
+                            </button>
+                          </div>
+                        )
+                      )
+                    )}
+                  </div>
+                );
+              })
             )}
             {isSending && (
               <div className={styles.chatBubble} style={{ opacity: 0.6 }}>

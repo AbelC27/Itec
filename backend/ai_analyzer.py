@@ -183,13 +183,17 @@ async def explain_error(language: str, code: str, stderr: str) -> dict:
 CHAT_SYSTEM_PROMPT = (
     "You are a helpful coding assistant embedded in a collaborative code editor called iTECify. "
     "The user may share code with you. Help them understand, debug, improve, or explain their code. "
-    "Be concise and practical. Use code examples when helpful."
+    "Be concise and practical.\n\n"
+    "IMPORTANT: When the user asks you to modify, fix, add to, or update their code, you MUST return "
+    "the COMPLETE updated file inside a single code block. Do NOT return only the changed lines or a "
+    "partial snippet — always include the full file so it can be applied directly. "
+    "Add a brief explanation before the code block describing what you changed."
 )
 
 
-async def chat(message: str, code: str) -> str:
+async def chat(message: str, code: str, history: list[dict] | None = None) -> str:
     """
-    Send a chat message (with optional code context) to the LLM.
+    Send a chat message (with optional code context and conversation history) to the LLM.
 
     Returns the AI's reply as a string, or a fallback message on failure.
     """
@@ -200,14 +204,19 @@ async def chat(message: str, code: str) -> str:
     if code and code.strip():
         user_content = f"{message}\n\nCurrent code:\n```\n{code}\n```"
 
+    messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+
+    # Include conversation history for multi-turn context
+    if history:
+        messages.extend(history)
+
+    messages.append({"role": "user", "content": user_content})
+
     try:
         response = await client.chat.completions.create(
             model="openai/gpt-4o",
             temperature=0.7,
-            messages=[
-                {"role": "system", "content": CHAT_SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
+            messages=messages,
         )
         content = response.choices[0].message.content
         if content and content.strip():

@@ -26,9 +26,15 @@ async def explain_endpoint(body: ErrorExplainRequest) -> ErrorExplainResponse:
     return ErrorExplainResponse(explanation=explanation)
 
 
+class ChatHistoryMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+
 class ChatRequest(BaseModel):
     message: str
     code: str = ""
+    history: list[ChatHistoryMessage] = []
 
 
 class ChatResponse(BaseModel):
@@ -37,5 +43,6 @@ class ChatResponse(BaseModel):
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(body: ChatRequest) -> ChatResponse:
-    reply = await chat(body.message, body.code)
+    history = [{"role": m.role, "content": m.content} for m in body.history]
+    reply = await chat(body.message, body.code, history)
     return ChatResponse(reply=reply)
