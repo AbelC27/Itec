@@ -14,7 +14,7 @@ import {
   pullDocumentContent,
   pushDocumentContent,
 } from "../lib/api";
-import { getWsBaseUrl, sendAiChat, ApiError, getChatSessions, createChatSession, deleteChatSession, getChatMessages, saveChatMessage } from "../lib/api";
+import {getChatSessions, createChatSession, deleteChatSession, getChatMessages, saveChatMessage } from "../lib/api";
 import type { AiChatSession } from "../lib/api";
 import type * as monaco from "monaco-editor";
 import styles from "./collaborative-editor.module.css";
