@@ -69,6 +69,19 @@ function EditorWithYjs({
   // Execution hook
   const execution = useExecution(documentId);
 
+  // Confetti easter egg
+  useEffect(() => {
+    if (!execution.easterEggTriggered) return;
+    (async () => {
+      try {
+        const confetti = (await import("canvas-confetti")).default;
+        confetti();
+      } catch {
+        // non-critical — silently swallow
+      }
+    })();
+  }, [execution.easterEggTriggered]);
+
   // Create binding when BOTH editor and yjsState are ready
   // Recreate when either changes
   useEffect(() => {
@@ -246,8 +259,26 @@ function EditorWithYjs({
           <div className={styles.statusBar}>
             <div className={styles.statusLeft}>
               <div className={styles.bannerMetric}>
-                <span>EST. COST:</span>
-                <strong>0.00042 ARCH</strong>
+                {execution.isScanning ? (
+                  <>
+                    <span
+                      className={styles.icon}
+                      style={{ fontSize: "14px", animation: "spin 1s linear infinite" }}
+                    >
+                      hourglass_top
+                    </span>
+                    <strong>AI Scanning...</strong>
+                  </>
+                ) : execution.aiResources ? (
+                  <>
+                    <span>CPU:</span>
+                    <strong>{execution.aiResources.cpu}</strong>
+                    <span style={{ marginLeft: "4px" }}>RAM:</span>
+                    <strong>{execution.aiResources.ram}</strong>
+                  </>
+                ) : (
+                  <span>AI: Idle</span>
+                )}
               </div>
               {execution.executionTime !== null && (
                 <div className={styles.bannerMetric}>
@@ -304,6 +335,20 @@ function EditorWithYjs({
               />
             </div>
           </div>
+          {execution.securityAlert && (
+            <div
+              style={{
+                background: "#ff5555",
+                color: "#ffffff",
+                padding: "10px 16px",
+                fontSize: "12px",
+                fontFamily: "'Fira Code', monospace",
+                fontWeight: 600,
+              }}
+            >
+              {execution.securityAlert}
+            </div>
+          )}
           <div className={`${styles.terminal} ${styles.glassPanel}`}>
             <div className={styles.terminalHeader}>
               <span

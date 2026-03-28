@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
-const STORAGE_KEY = "activeDocumentId";
+const STORAGE_KEY = "itecify_active_doc";
 
 type ActiveDocumentContextType = {
     activeDocumentId: string | null;

@@ -8,7 +8,9 @@ type WsExecutionMessage =
   | { type: "stdout"; data: string }
   | { type: "stderr"; data: string }
   | { type: "error"; data: string }
-  | { type: "complete"; data: { execution_time?: number; exit_code?: number } };
+  | { type: "complete"; data: { execution_time?: number; exit_code?: number } }
+  | { type: "status"; data: string }
+  | { type: "easter_egg"; data: string };
 
 export interface UseExecutionReturn {
   /** True while code is being executed on the server. */
@@ -33,6 +35,14 @@ export interface UseExecutionReturn {
   isExplaining: boolean;
   /** Call the AI explainer API. */
   explainWithAI: (language: string, code: string) => Promise<void>;
+  /** Security alert extracted from WS error messages containing [SECURITY ALERT]. */
+  securityAlert: string | null;
+  /** AI resource metrics extracted from WS status messages. */
+  aiResources: { cpu: string; ram: string } | null;
+  /** True while the AI is scanning code. */
+  isScanning: boolean;
+  /** True when an easter_egg message has been received. */
+  easterEggTriggered: boolean;
 }
 
 /**
@@ -52,6 +62,10 @@ export function useExecution(documentId: string): UseExecutionReturn {
   
   const [isExplaining, setIsExplaining] = useState(false);
   const [aiExplanation, setAiExplanation] = useState<string | null>(null);
+  const [securityAlert, setSecurityAlert] = useState<string | null>(null);
+  const [aiResources, setAiResources] = useState<{ cpu: string; ram: string } | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [easterEggTriggered, setEasterEggTriggered] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   // Cleanup on unmount
@@ -79,6 +93,10 @@ export function useExecution(documentId: string): UseExecutionReturn {
       setExecutionTime(null);
       setExitCode(null);
       setAiExplanation(null);
+      setSecurityAlert(null);
+      setAiResources(null);
+      setIsScanning(false);
+      setEasterEggTriggered(false);
       setIsRunning(true);
 
       let wsUrl: string;
@@ -123,8 +141,27 @@ export function useExecution(documentId: string): UseExecutionReturn {
             setStderrStr((prev) => prev + msg.data);
             break;
           case "error":
-            setError(typeof msg.data === "string" ? msg.data : "Execution error");
-            setIsRunning(false);
+            if (typeof msg.data === "string" && msg.data.includes("[SECURITY ALERT]")) {
+              setSecurityAlert(msg.data);
+            } else {
+              setError(typeof msg.data === "string" ? msg.data : "Execution error");
+              setIsRunning(false);
+            }
+            break;
+          case "status": {
+            if (msg.data.includes("[AI] Scanning code")) {
+              setIsScanning(true);
+            } else if (msg.data.includes("[AI] Allocated")) {
+              const match = msg.data.match(/RAM:\s*([^\s|]+)\s*\|\s*CPU:\s*(.+)/i);
+              if (match) {
+                setAiResources({ ram: match[1], cpu: match[2].trim() });
+              }
+              setIsScanning(false);
+            }
+            break;
+          }
+          case "easter_egg":
+            setEasterEggTriggered(true);
             break;
           case "complete":
             setExecutionTime(msg.data?.execution_time ?? null);
@@ -166,6 +203,10 @@ export function useExecution(documentId: string): UseExecutionReturn {
     setExecutionTime(null);
     setExitCode(null);
     setAiExplanation(null);
+    setSecurityAlert(null);
+    setAiResources(null);
+    setIsScanning(false);
+    setEasterEggTriggered(false);
   }, []);
 
   const explainWithAI = useCallback(async (language: string, code: string) => {
@@ -201,6 +242,10 @@ export function useExecution(documentId: string): UseExecutionReturn {
     clear,
     aiExplanation,
     isExplaining,
-    explainWithAI
+    explainWithAI,
+    securityAlert,
+    aiResources,
+    isScanning,
+    easterEggTriggered,
   };
 }
