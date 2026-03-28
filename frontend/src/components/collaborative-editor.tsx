@@ -18,7 +18,7 @@ import type { AiChatSession } from "../lib/api";
 import type * as monaco from "monaco-editor";
 import {
   Loader2, Play, X, Minus, ChevronRight, Plus, Paperclip,
-  Mic, Send, Wand2, RotateCcw, Bot,
+  Mic, Send, Wand2, RotateCcw, Bot, Download, Upload,
 } from "lucide-react";
 
 /** Extract code blocks from markdown-formatted AI replies. */
@@ -84,6 +84,7 @@ export default function CollaborativeEditor({
 
   return (
     <EditorWithYjs
+      key={documentId}
       documentId={documentId}
       profile={profile}
       language={language}
@@ -621,7 +622,7 @@ function EditorWithYjs({
                 <span>LATENCY:</span>
                 <strong className="text-purple-400">~14ms</strong>
               </div>
-              <div className={styles.bannerMetric} title={cloudSyncMessage}>
+              <div className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground bg-secondary px-2 py-1 rounded-lg" title={cloudSyncMessage}>
                 <span>SYNC:</span>
                 <strong style={{ color: cloudSyncAccent }}>{cloudSyncLabel}</strong>
               </div>
@@ -631,53 +632,34 @@ function EditorWithYjs({
                 type="button"
                 onClick={handlePullFromCloud}
                 disabled={!isSyncReady || isSyncBusy}
-                className={styles.deployButton}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  background: "#1e293b",
-                  color: "#e2e8f0",
-                  opacity: !isSyncReady || isSyncBusy ? 0.6 : 1,
-                  cursor: !isSyncReady || isSyncBusy ? "not-allowed" : "pointer",
-                }}
+                className="flex items-center gap-1.5 border-none rounded-lg px-4 py-2 text-[11px] uppercase tracking-widest font-extrabold bg-slate-800 text-slate-200 cursor-pointer transition-all duration-150 hover:bg-slate-700 disabled:opacity-60 disabled:cursor-not-allowed"
                 title={cloudSyncMessage}
               >
-                <span className={styles.icon} style={{ fontSize: "16px" }}>
-                  {cloudSyncState === "pulling" ? "sync" : "download"}
-                </span>
+                {cloudSyncState === "pulling" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
                 {cloudSyncState === "pulling" ? "Pulling..." : "Pull"}
               </button>
               <button
                 type="button"
                 onClick={handlePushToCloud}
                 disabled={!isSyncReady || isSyncBusy || cloudSyncState === "synced"}
-                className={styles.deployButton}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  background:
-                    cloudSyncState === "conflict"
-                      ? "#9a3412"
-                      : cloudSyncState === "dirty"
-                        ? "#2563eb"
-                        : "#0f766e",
-                  color: "#f8fafc",
-                  opacity:
-                    !isSyncReady || isSyncBusy || cloudSyncState === "synced"
-                      ? 0.6
-                      : 1,
-                  cursor:
-                    !isSyncReady || isSyncBusy || cloudSyncState === "synced"
-                      ? "not-allowed"
-                      : "pointer",
-                }}
+                className={`flex items-center gap-1.5 border-none rounded-lg px-4 py-2 text-[11px] uppercase tracking-widest font-extrabold text-slate-50 cursor-pointer transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed ${
+                  cloudSyncState === "conflict"
+                    ? "bg-orange-800 hover:bg-orange-700"
+                    : cloudSyncState === "dirty"
+                      ? "bg-blue-600 hover:bg-blue-500"
+                      : "bg-teal-700 hover:bg-teal-600"
+                }`}
                 title={cloudSyncMessage}
               >
-                <span className={styles.icon} style={{ fontSize: "16px" }}>
-                  {cloudSyncState === "pushing" ? "sync" : "upload"}
-                </span>
+                {cloudSyncState === "pushing" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
                 {cloudSyncState === "pushing" ? "Pushing..." : "Push"}
               </button>
               <button

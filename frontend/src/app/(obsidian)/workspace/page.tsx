@@ -105,6 +105,18 @@ export default function ObsidianWorkspacePage() {
         );
     }
 
+    // Show loading skeleton while the document is being fetched
+    if (isDocLoading || !document) {
+        return (
+            <div className="flex h-[calc(100vh-8rem)] items-center justify-center">
+                <div className="space-y-4 w-full max-w-2xl px-6">
+                    <Skeleton className="h-8 w-1/3" />
+                    <Skeleton className="h-[60vh] w-full" />
+                </div>
+            </div>
+        );
+    }
+
     // Pass the documentId to the editor once loaded
     return (
         <div style={{ height: "calc(100vh - 8rem)" }}>
