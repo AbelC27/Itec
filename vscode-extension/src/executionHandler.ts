@@ -20,6 +20,7 @@ export interface ExecutionOptions {
   language: string;
   code: string;
   documentId: string;
+  documentUri?: vscode.Uri;
   outputChannel: vscode.OutputChannel;
 }
 
@@ -31,10 +32,77 @@ export const LANGUAGE_MAP: Record<string, string> = {
 
 // --- AI Explanation Helper ---
 
+interface AiFixResponse {
+  error_explanation: string;
+  suggested_fix: string;
+  original_code: string;
+}
+
+async function getTargetEditor(
+  documentUri?: vscode.Uri
+): Promise<vscode.TextEditor | undefined> {
+  if (!documentUri) {
+    return vscode.window.activeTextEditor;
+  }
+
+  const activeEditor = vscode.window.activeTextEditor;
+  if (activeEditor && activeEditor.document.uri.toString() === documentUri.toString()) {
+    return activeEditor;
+  }
+
+  const document = await vscode.workspace.openTextDocument(documentUri);
+  return vscode.window.showTextDocument(document, { preview: false, preserveFocus: false });
+}
+
+async function applySuggestedFix(
+  documentUri: vscode.Uri | undefined,
+  originalCode: string,
+  suggestedFix: string,
+  outputChannel: vscode.OutputChannel
+): Promise<void> {
+  const editor = await getTargetEditor(documentUri);
+  if (!editor) {
+    vscode.window.showErrorMessage("iTECify: No editor available to apply the fix.");
+    return;
+  }
+
+  const documentText = editor.document.getText();
+  let startIndex = documentText.indexOf(originalCode);
+  let replacementLength = originalCode.length;
+
+  if (startIndex === -1) {
+    const trimmedOriginal = originalCode.trim();
+    if (trimmedOriginal) {
+      startIndex = documentText.indexOf(trimmedOriginal);
+      replacementLength = trimmedOriginal.length;
+    }
+  }
+
+  if (startIndex === -1) {
+    vscode.window.showWarningMessage(
+      "iTECify: Could not find the original code snippet to replace."
+    );
+    return;
+  }
+
+  const startPos = editor.document.positionAt(startIndex);
+  const endPos = editor.document.positionAt(startIndex + replacementLength);
+  const applied = await editor.edit((editBuilder) => {
+    editBuilder.replace(new vscode.Range(startPos, endPos), suggestedFix);
+  });
+
+  if (applied) {
+    outputChannel.appendLine("[iTECify AI] Applied suggested fix.");
+  } else {
+    outputChannel.appendLine("[iTECify AI] Failed to apply suggested fix.");
+  }
+}
+
 async function requestAiExplanation(
   language: string,
   code: string,
   stderr: string,
+  documentUri: vscode.Uri | undefined,
   outputChannel: vscode.OutputChannel
 ): Promise<void> {
   try {
@@ -45,8 +113,29 @@ async function requestAiExplanation(
       body: JSON.stringify({ language, code, stderr }),
     });
     if (response.ok) {
-      const data = (await response.json()) as { explanation: string };
-      outputChannel.appendLine("[iTECify AI] " + data.explanation);
+      const data = (await response.json()) as AiFixResponse;
+      outputChannel.appendLine("[iTECify AI] " + data.error_explanation);
+
+      const hasSuggestion =
+        data.suggested_fix && data.suggested_fix.trim() &&
+        data.original_code && data.original_code.trim();
+
+      if (hasSuggestion) {
+        const selection = await vscode.window.showInformationMessage(
+          "iTECify: AI suggested a fix.",
+          "Accept Fix",
+          "Reject"
+        );
+
+        if (selection === "Accept Fix") {
+          await applySuggestedFix(
+            documentUri,
+            data.original_code,
+            data.suggested_fix,
+            outputChannel
+          );
+        }
+      }
     } else {
       outputChannel.appendLine(
         "[iTECify AI] Could not reach the iTECify backend for error analysis."
@@ -62,7 +151,7 @@ async function requestAiExplanation(
 // --- Execution Function ---
 
 export function executeCode(options: ExecutionOptions): Promise<void> {
-  const { language, code, documentId, outputChannel } = options;
+  const { language, code, documentId, documentUri, outputChannel } = options;
 
   return new Promise<void>((resolve, reject) => {
     let settled = false;
@@ -99,10 +188,10 @@ export function executeCode(options: ExecutionOptions): Promise<void> {
         case "complete":
           outputChannel.appendLine(
             "\n✓ Execution complete in " +
-              msg.data.execution_time +
-              "s (exit code: " +
-              msg.data.exit_code +
-              ")"
+            msg.data.execution_time +
+            "s (exit code: " +
+            msg.data.exit_code +
+            ")"
           );
           vscode.window.showInformationMessage(
             "iTECify: Execution complete (" + msg.data.execution_time + "s)"
@@ -111,8 +200,8 @@ export function executeCode(options: ExecutionOptions): Promise<void> {
             vscode.window
               .showErrorMessage(
                 "iTECify: Execution failed (exit code " +
-                  msg.data.exit_code +
-                  ")",
+                msg.data.exit_code +
+                ")",
                 "🤖 Explain with AI"
               )
               .then((selection) => {
@@ -121,6 +210,7 @@ export function executeCode(options: ExecutionOptions): Promise<void> {
                     language,
                     code,
                     stderrBuffer,
+                    documentUri,
                     outputChannel
                   );
                 }
@@ -147,10 +237,10 @@ export function executeCode(options: ExecutionOptions): Promise<void> {
           vscode.window.showInformationMessage(msg.data);
           outputChannel.appendLine(
             "\n" +
-              "╔══════════════════════════════════════╗\n" +
-              "║   🎉 iTEC 2026 Easter Egg Found! 🎉  ║\n" +
-              "║      You are a true explorer!        ║\n" +
-              "╚══════════════════════════════════════╝"
+            "╔══════════════════════════════════════╗\n" +
+            "║   🎉 iTEC 2026 Easter Egg Found! 🎉  ║\n" +
+            "║      You are a true explorer!        ║\n" +
+            "╚══════════════════════════════════════╝"
           );
           break;
       }

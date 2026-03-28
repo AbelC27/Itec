@@ -17,6 +17,21 @@
         "command": "itecify.runCloudExecution",
         "title": "iTECify: Run Code in Cloud",
         "icon": "$(play)"
+      },
+      {
+        "command": "itecify.pullCode",
+        "title": "iTECify: Pull Code from Cloud",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "itecify.createBranch",
+        "title": "iTECify: New Branch",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "itecify.deleteBranch",
+        "title": "iTECify: Delete Branch",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -27,7 +42,14 @@
           "when": "resourceLangId == python || resourceLangId == javascript || resourceLangId == javascriptreact"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "itecify.pullCode",
+        "key": "shift+enter",
+        "when": "editorTextFocus"
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./"

@@ -106,12 +106,24 @@ async def analyze(code: str) -> ResourceEstimate:
 # System prompt for error explanation — uses {language} placeholder formatted at call time
 ERROR_EXPLAIN_PROMPT = (
     "You are a concise coding assistant. The user ran {language} code that failed.\n"
-    "Explain the error in 2-3 sentences, then provide the corrected code.\n"
-    "Do not ramble. Be direct."
+    "Return ONLY a raw JSON object with exactly these fields:\n"
+    '- "error_explanation": brief explanation in 2-3 sentences\n'
+    '- "suggested_fix": corrected code snippet only (no markdown, no code fences)\n'
+    '- "original_code": exact snippet from the input that should be replaced\n\n'
+    "If you cannot confidently fix the issue, set suggested_fix and original_code to empty strings.\n"
+    "No extra keys, no markdown, no additional text."
 )
 
 
-async def explain_error(language: str, code: str, stderr: str) -> str:
+def _safe_error_fix(message: str) -> dict:
+    return {
+        "error_explanation": message,
+        "suggested_fix": "",
+        "original_code": "",
+    }
+
+
+async def explain_error(language: str, code: str, stderr: str) -> dict:
     """
     Ask the LLM to explain a code execution error and suggest a fix.
 
@@ -121,8 +133,8 @@ async def explain_error(language: str, code: str, stderr: str) -> str:
         stderr: The stderr output from the failed execution
 
     Returns:
-        A string containing the AI's explanation and corrected code,
-        or a fallback message on any failure. Never raises.
+        A dict containing error_explanation, suggested_fix, and original_code,
+        or safe fallback values on any failure. Never raises.
     """
     try:
         response = await client.chat.completions.create(
@@ -133,10 +145,34 @@ async def explain_error(language: str, code: str, stderr: str) -> str:
                 {"role": "user", "content": f"Code:\n{code}\n\nError:\n{stderr}"},
             ],
         )
-        content = response.choices[0].message.content
-        if content and content.strip():
-            return content.strip()
-        return "The AI returned an empty response. Please review the error output manually."
+        content = response.choices[0].message.content or ""
+        if not content.strip():
+            return _safe_error_fix(
+                "The AI returned an empty response. Please review the error output manually."
+            )
+
+        data = json.loads(content)
+        if not isinstance(data, dict):
+            return _safe_error_fix(
+                "The AI returned an invalid response. Please review the error output manually."
+            )
+
+        error_explanation = str(data.get("error_explanation", "")).strip()
+        suggested_fix = str(data.get("suggested_fix", ""))
+        original_code = str(data.get("original_code", ""))
+
+        if not error_explanation:
+            error_explanation = (
+                "Unable to analyze this error automatically. Please review the stderr output above."
+            )
+
+        return {
+            "error_explanation": error_explanation,
+            "suggested_fix": suggested_fix,
+            "original_code": original_code,
+        }
     except Exception as exc:
         logger.warning("AI error explanation failed (%s)", exc)
-        return "Unable to analyze this error automatically. Please review the stderr output above."
+        return _safe_error_fix(
+            "Unable to analyze this error automatically. Please review the stderr output above."
+        )

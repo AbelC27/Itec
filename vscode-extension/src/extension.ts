@@ -1,14 +1,53 @@
 import * as vscode from "vscode";
 import { executeCode, LANGUAGE_MAP } from "./executionHandler";
 
+const BACKEND_BASE_URL = "http://localhost:8000";
+const DOCUMENT_ID_KEY = "itecify.documentId";
+
 let isExecuting = false;
-let lastDocumentId = "";
+let didWarnMissingDocumentId = false;
+let didWarnSyncFailure = false;
+let isApplyingPull = false;
+let pushDebounceHandle: NodeJS.Timeout | undefined;
+const PUSH_DEBOUNCE_MS = 200;
 
 function detectLanguage(editor: vscode.TextEditor): string | undefined {
   return LANGUAGE_MAP[editor.document.languageId];
 }
 
+function getStoredDocumentId(
+  context: vscode.ExtensionContext
+): string | undefined {
+  return context.globalState.get<string>(DOCUMENT_ID_KEY);
+}
+
+async function setStoredDocumentId(
+  context: vscode.ExtensionContext,
+  documentId: string
+): Promise<void> {
+  await context.globalState.update(DOCUMENT_ID_KEY, documentId);
+}
+
+async function promptForDocumentId(
+  context: vscode.ExtensionContext,
+  prompt: string
+): Promise<string | undefined> {
+  const documentId = await vscode.window.showInputBox({
+    prompt,
+    placeHolder: "e.g. abc123-def456",
+    value: getStoredDocumentId(context),
+  });
+
+  if (!documentId) {
+    return undefined;
+  }
+
+  await setStoredDocumentId(context, documentId);
+  return documentId;
+}
+
 async function runCloudExecution(
+  context: vscode.ExtensionContext,
   outputChannel: vscode.OutputChannel
 ): Promise<void> {
   if (isExecuting) {
@@ -38,21 +77,20 @@ async function runCloudExecution(
     return;
   }
 
-  const documentId = await vscode.window.showInputBox({
-    prompt: "Enter the iTECify Document ID",
-    placeHolder: "e.g. abc123-def456",
-    value: lastDocumentId,
-  });
+  const documentId = await promptForDocumentId(
+    context,
+    "Enter the iTECify Document ID"
+  );
 
   if (!documentId) {
     return;
   }
 
-  lastDocumentId = documentId;
-
   outputChannel.clear();
   outputChannel.show(true);
-  outputChannel.appendLine(`[iTECify] Running ${language} code in cloud (document: ${documentId})...`);
+  outputChannel.appendLine(
+    `[iTECify] Running ${language} code in cloud (document: ${documentId})...`
+  );
 
   isExecuting = true;
   try {
@@ -60,6 +98,7 @@ async function runCloudExecution(
       language,
       code,
       documentId,
+      documentUri: editor.document.uri,
       outputChannel,
     });
   } finally {
@@ -67,16 +106,269 @@ async function runCloudExecution(
   }
 }
 
-export function activate(context: vscode.ExtensionContext): void {
-  const outputChannel =
-    vscode.window.createOutputChannel("iTECify Cloud Run");
-
-  const disposable = vscode.commands.registerCommand(
-    "itecify.runCloudExecution",
-    () => runCloudExecution(outputChannel)
-  );
-
-  context.subscriptions.push(disposable, outputChannel);
+function isEnterChange(event: vscode.TextDocumentChangeEvent): boolean {
+  return event.contentChanges.some((change) => change.text.includes("\n"));
 }
 
-export function deactivate(): void {}
+function scheduleSyncPush(
+  document: vscode.TextDocument,
+  context: vscode.ExtensionContext
+): void {
+  if (pushDebounceHandle) {
+    clearTimeout(pushDebounceHandle);
+  }
+
+  pushDebounceHandle = setTimeout(() => {
+    void syncPushDocument(document, context);
+  }, PUSH_DEBOUNCE_MS);
+}
+
+async function syncPushDocument(
+  document: vscode.TextDocument,
+  context: vscode.ExtensionContext
+): Promise<void> {
+  if (document.isUntitled || document.uri.scheme !== "file") {
+    return;
+  }
+
+  const documentId = getStoredDocumentId(context);
+  if (!documentId) {
+    if (!didWarnMissingDocumentId) {
+      didWarnMissingDocumentId = true;
+      vscode.window.showInformationMessage(
+        "iTECify: Set a Document ID to enable cloud sync."
+      );
+    }
+    return;
+  }
+
+  try {
+    const response = await fetch(`${BACKEND_BASE_URL}/api/docs/sync/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        document_id: documentId,
+        content: document.getText(),
+      }),
+    });
+
+    if (!response.ok && !didWarnSyncFailure) {
+      didWarnSyncFailure = true;
+      const message = await response.text();
+      vscode.window.showWarningMessage(
+        `iTECify: Cloud sync failed (${response.status}). ${message || ""}`.trim()
+      );
+    }
+  } catch (error) {
+    if (!didWarnSyncFailure) {
+      didWarnSyncFailure = true;
+      vscode.window.showWarningMessage(
+        "iTECify: Cloud sync failed. Is the backend running?"
+      );
+    }
+  }
+}
+
+async function pullCode(context: vscode.ExtensionContext): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showErrorMessage("iTECify: No active editor found.");
+    return;
+  }
+
+  const documentId = await promptForDocumentId(
+    context,
+    "Enter the iTECify Document ID to pull"
+  );
+
+  if (!documentId) {
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `${BACKEND_BASE_URL}/api/docs/sync/pull?id=${encodeURIComponent(documentId)}`
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      vscode.window.showErrorMessage(
+        `iTECify: Pull failed (${response.status}). ${message || ""}`.trim()
+      );
+      return;
+    }
+
+    const data = (await response.json()) as { content?: string };
+    const content = typeof data.content === "string" ? data.content : "";
+    const fullRange = new vscode.Range(
+      editor.document.positionAt(0),
+      editor.document.positionAt(editor.document.getText().length)
+    );
+
+    isApplyingPull = true;
+    try {
+      const applied = await editor.edit((editBuilder) => {
+        editBuilder.replace(fullRange, content);
+      });
+
+      if (!applied) {
+        vscode.window.showErrorMessage("iTECify: Failed to apply pulled content.");
+      }
+    } finally {
+      isApplyingPull = false;
+    }
+  } catch (error) {
+    vscode.window.showErrorMessage(
+      "iTECify: Pull failed. Is the backend running?"
+    );
+  }
+}
+
+async function createBranch(context: vscode.ExtensionContext): Promise<void> {
+  const parentDocumentId = await promptForDocumentId(
+    context,
+    "Enter the parent Document ID for the branch"
+  );
+
+  if (!parentDocumentId) {
+    return;
+  }
+
+  const branchName = await vscode.window.showInputBox({
+    prompt: "Enter a new branch name",
+    placeHolder: "e.g. feature/refactor-auth",
+  });
+
+  if (!branchName) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${BACKEND_BASE_URL}/api/docs/branch/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parent_doc_id: parentDocumentId,
+        branch_name: branchName,
+      }),
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      vscode.window.showErrorMessage(
+        `iTECify: Branch creation failed (${response.status}). ${message || ""}`.trim()
+      );
+      return;
+    }
+
+    const data = (await response.json()) as { document_id?: string };
+    if (data.document_id) {
+      await setStoredDocumentId(context, data.document_id);
+    }
+    vscode.window.showInformationMessage(
+      "iTECify: Branch created and set as current document."
+    );
+  } catch (error) {
+    vscode.window.showErrorMessage(
+      "iTECify: Branch creation failed. Is the backend running?"
+    );
+  }
+}
+
+async function deleteBranch(context: vscode.ExtensionContext): Promise<void> {
+  const documentId = getStoredDocumentId(context);
+  if (!documentId) {
+    vscode.window.showErrorMessage("iTECify: No Document ID configured.");
+    return;
+  }
+
+  const confirmation = await vscode.window.showWarningMessage(
+    "Are you sure you want to delete this branch?",
+    { modal: true },
+    "Delete"
+  );
+
+  if (confirmation !== "Delete") {
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `${BACKEND_BASE_URL}/api/docs/branch/delete?document_id=${encodeURIComponent(documentId)}`,
+      { method: "DELETE" }
+    );
+
+    if (!response.ok) {
+      const message = await response.text();
+      vscode.window.showErrorMessage(
+        `iTECify: Delete failed (${response.status}). ${message || ""}`.trim()
+      );
+      return;
+    }
+
+    await context.globalState.update(DOCUMENT_ID_KEY, undefined);
+    vscode.window.showInformationMessage("iTECify: Branch deleted.");
+  } catch (error) {
+    vscode.window.showErrorMessage(
+      "iTECify: Delete failed. Is the backend running?"
+    );
+  }
+}
+
+export function activate(context: vscode.ExtensionContext): void {
+  const outputChannel = vscode.window.createOutputChannel("iTECify Cloud Run");
+
+  const runDisposable = vscode.commands.registerCommand(
+    "itecify.runCloudExecution",
+    () => runCloudExecution(context, outputChannel)
+  );
+
+  const pullDisposable = vscode.commands.registerCommand(
+    "itecify.pullCode",
+    () => pullCode(context)
+  );
+
+  const createBranchDisposable = vscode.commands.registerCommand(
+    "itecify.createBranch",
+    () => createBranch(context)
+  );
+
+  const deleteBranchDisposable = vscode.commands.registerCommand(
+    "itecify.deleteBranch",
+    () => deleteBranch(context)
+  );
+
+  const changeDisposable = vscode.workspace.onDidChangeTextDocument((event) => {
+    if (isApplyingPull || !isEnterChange(event)) {
+      return;
+    }
+
+    const activeEditor = vscode.window.activeTextEditor;
+    if (!activeEditor || activeEditor.document.uri.toString() !== event.document.uri.toString()) {
+      return;
+    }
+
+    scheduleSyncPush(event.document, context);
+  });
+
+  const newBranchStatusBar = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    100
+  );
+  newBranchStatusBar.text = "$(git-branch) New Branch";
+  newBranchStatusBar.command = "itecify.createBranch";
+  newBranchStatusBar.tooltip = "iTECify: Create a new branch";
+  newBranchStatusBar.show();
+
+  context.subscriptions.push(
+    runDisposable,
+    pullDisposable,
+    createBranchDisposable,
+    deleteBranchDisposable,
+    changeDisposable,
+    newBranchStatusBar,
+    outputChannel
+  );
+}
+
+export function deactivate(): void { }

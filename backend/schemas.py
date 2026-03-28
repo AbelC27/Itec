@@ -72,3 +72,24 @@ class DocumentResponse(BaseModel):
     owner_id: UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+class DocumentSyncPush(BaseModel):
+    """Request body for pushing document content to cloud sync."""
+
+    document_id: str
+    content: str
+
+
+class DocumentSyncPullResponse(BaseModel):
+    """Response body for pulling document content."""
+
+    document_id: str
+    content: str
+
+
+class BranchCreateRequest(BaseModel):
+    """Request body for creating a new branch from a parent document."""
+
+    parent_doc_id: str
+    branch_name: str

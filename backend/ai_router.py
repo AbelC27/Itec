@@ -13,10 +13,12 @@ class ErrorExplainRequest(BaseModel):
 
 
 class ErrorExplainResponse(BaseModel):
-    explanation: str
+    error_explanation: str
+    suggested_fix: str
+    original_code: str
 
 
 @router.post("/explain", response_model=ErrorExplainResponse)
 async def explain_endpoint(body: ErrorExplainRequest) -> ErrorExplainResponse:
-    explanation = await explain_error(body.language, body.code, body.stderr)
-    return ErrorExplainResponse(explanation=explanation)
+    result = await explain_error(body.language, body.code, body.stderr)
+    return ErrorExplainResponse(**result)

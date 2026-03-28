@@ -45,8 +45,50 @@ exports.LANGUAGE_MAP = {
     javascript: "javascript",
     javascriptreact: "javascript",
 };
-// --- AI Explanation Helper ---
-async function requestAiExplanation(language, code, stderr, outputChannel) {
+async function getTargetEditor(documentUri) {
+    if (!documentUri) {
+        return vscode.window.activeTextEditor;
+    }
+    const activeEditor = vscode.window.activeTextEditor;
+    if (activeEditor && activeEditor.document.uri.toString() === documentUri.toString()) {
+        return activeEditor;
+    }
+    const document = await vscode.workspace.openTextDocument(documentUri);
+    return vscode.window.showTextDocument(document, { preview: false, preserveFocus: false });
+}
+async function applySuggestedFix(documentUri, originalCode, suggestedFix, outputChannel) {
+    const editor = await getTargetEditor(documentUri);
+    if (!editor) {
+        vscode.window.showErrorMessage("iTECify: No editor available to apply the fix.");
+        return;
+    }
+    const documentText = editor.document.getText();
+    let startIndex = documentText.indexOf(originalCode);
+    let replacementLength = originalCode.length;
+    if (startIndex === -1) {
+        const trimmedOriginal = originalCode.trim();
+        if (trimmedOriginal) {
+            startIndex = documentText.indexOf(trimmedOriginal);
+            replacementLength = trimmedOriginal.length;
+        }
+    }
+    if (startIndex === -1) {
+        vscode.window.showWarningMessage("iTECify: Could not find the original code snippet to replace.");
+        return;
+    }
+    const startPos = editor.document.positionAt(startIndex);
+    const endPos = editor.document.positionAt(startIndex + replacementLength);
+    const applied = await editor.edit((editBuilder) => {
+        editBuilder.replace(new vscode.Range(startPos, endPos), suggestedFix);
+    });
+    if (applied) {
+        outputChannel.appendLine("[iTECify AI] Applied suggested fix.");
+    }
+    else {
+        outputChannel.appendLine("[iTECify AI] Failed to apply suggested fix.");
+    }
+}
+async function requestAiExplanation(language, code, stderr, documentUri, outputChannel) {
     try {
         outputChannel.appendLine("[iTECify AI] Analyzing error...");
         const response = await fetch("http://localhost:8000/api/ai/explain", {
@@ -56,7 +98,15 @@ async function requestAiExplanation(language, code, stderr, outputChannel) {
         });
         if (response.ok) {
             const data = (await response.json());
-            outputChannel.appendLine("[iTECify AI] " + data.explanation);
+            outputChannel.appendLine("[iTECify AI] " + data.error_explanation);
+            const hasSuggestion = data.suggested_fix && data.suggested_fix.trim() &&
+                data.original_code && data.original_code.trim();
+            if (hasSuggestion) {
+                const selection = await vscode.window.showInformationMessage("iTECify: AI suggested a fix.", "Accept Fix", "Reject");
+                if (selection === "Accept Fix") {
+                    await applySuggestedFix(documentUri, data.original_code, data.suggested_fix, outputChannel);
+                }
+            }
         }
         else {
             outputChannel.appendLine("[iTECify AI] Could not reach the iTECify backend for error analysis.");
@@ -68,7 +118,7 @@ async function requestAiExplanation(language, code, stderr, outputChannel) {
 }
 // --- Execution Function ---
 function executeCode(options) {
-    const { language, code, documentId, outputChannel } = options;
+    const { language, code, documentId, documentUri, outputChannel } = options;
     return new Promise((resolve, reject) => {
         let settled = false;
         let stderrBuffer = "";
@@ -108,7 +158,7 @@ function executeCode(options) {
                             ")", "🤖 Explain with AI")
                             .then((selection) => {
                             if (selection === "🤖 Explain with AI") {
-                                requestAiExplanation(language, code, stderrBuffer, outputChannel);
+                                requestAiExplanation(language, code, stderrBuffer, documentUri, outputChannel);
                             }
                         });
                     }
