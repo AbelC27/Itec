@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, Plus, Loader2, AlertCircle } from "lucide-react";
 import { createDocument } from "@/lib/api";
+import { useActiveDocument } from "@/components/providers/active-document-provider";
 
 const LANGUAGES = [
     { value: "python", label: "Python" },
@@ -12,6 +13,7 @@ const LANGUAGES = [
 
 export default function QuickActions() {
     const router = useRouter();
+    const { setActiveDocumentId } = useActiveDocument();
     const [showForm, setShowForm] = useState(false);
     const [title, setTitle] = useState("");
     const [language, setLanguage] = useState(LANGUAGES[0].value);
@@ -24,7 +26,8 @@ export default function QuickActions() {
         setError(null);
         try {
             const doc = await createDocument({ title: title.trim(), language });
-            router.push(`/editor/${doc.id}`);
+            setActiveDocumentId(doc.id);
+            router.push("/workspace");
         } catch (err) {
             setError(
                 err instanceof Error ? err.message : "Failed to create document"

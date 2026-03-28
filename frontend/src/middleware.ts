@@ -33,8 +33,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/homepage") ||
     pathname.startsWith("/workspace") ||
     pathname.startsWith("/debugging") ||
-    pathname.startsWith("/assistant") ||
-    pathname.startsWith("/editor");
+    pathname.startsWith("/profile");
 
   // Redirect unauthenticated users away from protected routes
   if (!user && isProtectedRoute) {
@@ -58,8 +57,7 @@ export const config = {
     "/homepage/:path*",
     "/workspace/:path*",
     "/debugging/:path*",
-    "/assistant/:path*",
-    "/editor/:path*",
+    "/profile/:path*",
     "/auth/:path*",
   ],
 };

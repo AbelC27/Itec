@@ -84,11 +84,18 @@ function EditorWithYjs({
       new Set([editor]),
       yjsState.awareness
     );
+    const yDoc = yjsState.yDoc;
     bindingRef.current = binding;
 
     return () => {
-      binding.destroy();
+      if (bindingRef.current !== binding) return;
       bindingRef.current = null;
+      if (yDoc.destroyed) return;
+      try {
+        binding.destroy();
+      } catch {
+        // Ignore teardown errors from yjs during rapid unmounts.
+      }
     };
   }, [yjsState, editor]);
 
@@ -234,122 +241,50 @@ function EditorWithYjs({
 
   return (
     <div className={styles.workspace}>
-      <div className={`${styles.topBanner} ${styles.glassPanel}`}>
-        <div className={styles.bannerLeft}>
-          <span className={`${styles.icon} ${styles.iconFilled}`}>analytics</span>
-          <span className={styles.bannerLabel}>Pre-Execution Scanner:</span>
-          <span className={styles.bannerStatus}>OPTIMIZED PATH FOUND</span>
-        </div>
-        <div className={styles.bannerRight}>
-          <div className={styles.bannerMetric}>
-            <span>EST. COST:</span>
-            <strong>0.00042 ARCH</strong>
-          </div>
-          {execution.executionTime !== null && (
-            <div className={styles.bannerMetric}>
-              <span>EXEC TIME:</span>
-              <strong className={styles.secondaryText}>
-                {execution.executionTime.toFixed(2)}s
-              </strong>
-            </div>
-          )}
-          <div className={styles.bannerMetric}>
-            <span>LATENCY:</span>
-            <strong className={styles.secondaryText}>~14ms</strong>
-          </div>
-          <button
-            type="button"
-            onClick={handleRunCode}
-            disabled={execution.isRunning}
-            className={styles.deployButton}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              opacity: execution.isRunning ? 0.6 : 1,
-              cursor: execution.isRunning ? "not-allowed" : "pointer",
-            }}
-          >
-            <span className={styles.icon} style={{ fontSize: "16px" }}>
-              {execution.isRunning ? "hourglass_top" : "play_arrow"}
-            </span>
-            {execution.isRunning ? "Running…" : "Run"}
-          </button>
-          <button type="button" className={styles.navButton}>
-            <span className={styles.icon}>close</span>
-          </button>
-        </div>
-      </div>
-
-      <nav className={styles.sideNav}>
-        <div className={styles.brandBadge}>
-          <div className={styles.brandIcon}>
-            <span className={`${styles.icon} ${styles.iconFilled}`}>
-              architecture
-            </span>
-          </div>
-          <span className={styles.brandText}>AETHER</span>
-        </div>
-        <div className={styles.navGroup}>
-          <button type="button" className={styles.navButton}>
-            <span className={styles.icon}>dashboard</span>
-          </button>
-          <button type="button" className={`${styles.navButton} ${styles.navButtonActive}`}>
-            <span className={`${styles.icon} ${styles.iconFilled}`}>code_blocks</span>
-          </button>
-          <button type="button" className={styles.navButton}>
-            <span className={styles.icon}>bug_report</span>
-          </button>
-          <button type="button" className={styles.navButton}>
-            <span className={styles.icon}>settings</span>
-          </button>
-        </div>
-        <div className={styles.navGroup}>
-          <button type="button" className={styles.navButton}>
-            <span className={styles.icon}>terminal</span>
-          </button>
-          <button type="button" className={styles.navButton}>
-            <span className={styles.icon}>help_outline</span>
-          </button>
-        </div>
-      </nav>
-
-      <header className={styles.topBar}>
-        <div className={styles.topBarLeft}>
-          <div className={styles.topBarBrand}>iTECity</div>
-          <nav className={styles.topBarLinks}>
-            <a className="active" href="#">
-              Files
-            </a>
-            <a href="#">Edit</a>
-            <a href="#">Selection</a>
-            <a href="#">View</a>
-          </nav>
-        </div>
-        <div className={styles.bannerRight}>
-          <div className={styles.searchBox}>
-            <span className={`${styles.icon} ${styles.searchIcon}`}>search</span>
-            <input placeholder="CMD + P TO SEARCH..." type="text" />
-          </div>
-          <button type="button" className={styles.navButton}>
-            <span className={styles.icon}>smart_toy</span>
-          </button>
-          <button type="button" className={styles.navButton}>
-            <span className={styles.icon}>notifications</span>
-          </button>
-          <button type="button" className={styles.deployButton}>
-            Deploy
-          </button>
-        </div>
-      </header>
-
       <main className={styles.main}>
         <section className={styles.editorPane}>
-          <div
-            className={`${styles.connectionBar} ${yjsState?.isConnected ? styles.connected : styles.disconnected
-              }`}
-          >
-            {connectionText}
+          <div className={styles.statusBar}>
+            <div className={styles.statusLeft}>
+              <div className={styles.bannerMetric}>
+                <span>EST. COST:</span>
+                <strong>0.00042 ARCH</strong>
+              </div>
+              {execution.executionTime !== null && (
+                <div className={styles.bannerMetric}>
+                  <span>EXEC TIME:</span>
+                  <strong className={styles.secondaryText}>
+                    {execution.executionTime.toFixed(2)}s
+                  </strong>
+                </div>
+              )}
+              <div className={styles.bannerMetric}>
+                <span>LATENCY:</span>
+                <strong className={styles.secondaryText}>~14ms</strong>
+              </div>
+            </div>
+            <div className={styles.statusRight}>
+              <button
+                type="button"
+                onClick={handleRunCode}
+                disabled={execution.isRunning}
+                className={styles.deployButton}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  opacity: execution.isRunning ? 0.6 : 1,
+                  cursor: execution.isRunning ? "not-allowed" : "pointer",
+                }}
+              >
+                <span className={styles.icon} style={{ fontSize: "16px" }}>
+                  {execution.isRunning ? "hourglass_top" : "play_arrow"}
+                </span>
+                {execution.isRunning ? "Running…" : "Run"}
+              </button>
+              <button type="button" className={styles.navButton}>
+                <span className={styles.icon}>close</span>
+              </button>
+            </div>
           </div>
           <div className={styles.tabBar}>
             <span className={styles.tab}>
@@ -577,69 +512,69 @@ function EditorWithYjs({
               )}
             </div>
 
-          {activeTab === "History" && (
-            <div className={styles.terminalBody} style={{ overflowY: "auto", maxHeight: "100%" }}>
-              {historyHook.isLoading ? (
-                <div style={{ opacity: 0.7, marginTop: 8 }}>Loading history...</div>
-              ) : historyHook.error ? (
-                <div style={{ color: "#f87171", marginTop: 8 }}>⚠ {historyHook.error}</div>
-              ) : historyHook.history.length === 0 ? (
-                <div style={{ opacity: 0.7, marginTop: 8 }}>No execution history yet.</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px" }}>
-                  {historyHook.history.map((entry) => (
-                    <div
-                      key={entry.id}
-                      style={{
-                        padding: "10px",
-                        borderRadius: "4px",
-                        background: "rgba(15, 23, 42, 0.4)",
-                        border: "1px solid rgba(51, 65, 85, 0.5)",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center"
-                      }}
-                    >
-                      <div>
-                        <div style={{
-                          fontSize: "12px",
-                          color: entry.stderr ? "#f87171" : "#34d399",
-                          fontFamily: "monospace",
-                          marginBottom: "4px"
-                        }}>
-                          {entry.stderr ? "✗ Failed" : "✓ Success"} • {new Date(entry.created_at).toLocaleString()}
-                        </div>
-                        <div style={{ fontSize: "11px", color: "#94a3b8" }}>
-                          {entry.execution_time.toFixed(2)}s • {entry.language}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (editor && confirm("Restore this code snapshot? Current editor contents will be overwritten.")) {
-                            editor.setValue(entry.code_snapshot);
-                          }
-                        }}
+            {activeTab === "History" && (
+              <div className={styles.terminalBody} style={{ overflowY: "auto", maxHeight: "100%" }}>
+                {historyHook.isLoading ? (
+                  <div style={{ opacity: 0.7, marginTop: 8 }}>Loading history...</div>
+                ) : historyHook.error ? (
+                  <div style={{ color: "#f87171", marginTop: 8 }}>⚠ {historyHook.error}</div>
+                ) : historyHook.history.length === 0 ? (
+                  <div style={{ opacity: 0.7, marginTop: 8 }}>No execution history yet.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px" }}>
+                    {historyHook.history.map((entry) => (
+                      <div
+                        key={entry.id}
                         style={{
-                          padding: "4px 8px",
+                          padding: "10px",
                           borderRadius: "4px",
-                          background: "rgba(59, 130, 246, 0.1)",
-                          border: "1px solid rgba(59, 130, 246, 0.3)",
-                          color: "#93c5fd",
-                          fontSize: "10px",
-                          textTransform: "uppercase",
-                          cursor: "pointer",
-                          transition: "all 0.2s",
+                          background: "rgba(15, 23, 42, 0.4)",
+                          border: "1px solid rgba(51, 65, 85, 0.5)",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center"
                         }}
                       >
-                        Restore Code
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                        <div>
+                          <div style={{
+                            fontSize: "12px",
+                            color: entry.stderr ? "#f87171" : "#34d399",
+                            fontFamily: "monospace",
+                            marginBottom: "4px"
+                          }}>
+                            {entry.stderr ? "✗ Failed" : "✓ Success"} • {new Date(entry.created_at).toLocaleString()}
+                          </div>
+                          <div style={{ fontSize: "11px", color: "#94a3b8" }}>
+                            {entry.execution_time.toFixed(2)}s • {entry.language}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editor && confirm("Restore this code snapshot? Current editor contents will be overwritten.")) {
+                              editor.setValue(entry.code_snapshot);
+                            }
+                          }}
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: "4px",
+                            background: "rgba(59, 130, 246, 0.1)",
+                            border: "1px solid rgba(59, 130, 246, 0.3)",
+                            color: "#93c5fd",
+                            fontSize: "10px",
+                            textTransform: "uppercase",
+                            cursor: "pointer",
+                            transition: "all 0.2s",
+                          }}
+                        >
+                          Restore Code
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
           </div>
         </section>

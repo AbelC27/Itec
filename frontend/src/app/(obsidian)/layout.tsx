@@ -25,7 +25,7 @@ const primaryNav: NavItem[] = [
     { href: "/homepage", label: "Home", icon: Home },
     { href: "/workspace", label: "Workspace", icon: Code2 },
     { href: "/debugging", label: "Debugging", icon: Bug },
-    { href: "/assistant", label: "Profile", icon: User },
+    { href: "/profile", label: "Profile", icon: User },
 ];
 
 const secondaryNav: NavItem[] = [

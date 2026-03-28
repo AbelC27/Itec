@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileClock, FileCode2, Loader2, AlertCircle, Trash2 } from "lucide-react";
 import { getDocuments, deleteDocument } from "@/lib/api";
+import { useActiveDocument } from "@/components/providers/active-document-provider";
 import type { Document } from "@/types/database";
 
 const LANGUAGE_COLORS: Record<string, string> = {
@@ -25,6 +26,7 @@ function formatRelativeTime(dateStr: string): string {
 
 export default function RecentFiles() {
     const router = useRouter();
+    const { setActiveDocumentId } = useActiveDocument();
     const [documents, setDocuments] = useState<Document[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -117,11 +119,23 @@ export default function RecentFiles() {
                         LANGUAGE_COLORS[doc.language] ??
                         "bg-slate-500/20 text-slate-300 border-slate-500/30";
 
+                    const openDocument = () => {
+                        setActiveDocumentId(doc.id);
+                        router.push("/workspace");
+                    };
+
                     return (
-                        <button
+                        <div
                             key={doc.id}
-                            type="button"
-                            onClick={() => router.push(`/editor/${doc.id}`)}
+                            role="button"
+                            tabIndex={0}
+                            onClick={openDocument}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    openDocument();
+                                }
+                            }}
                             className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition hover:border-slate-800 hover:bg-slate-900/60"
                         >
                             <FileCode2 className="h-4 w-4 shrink-0 text-slate-400" />
@@ -149,7 +163,7 @@ export default function RecentFiles() {
                                     <Trash2 className="h-3.5 w-3.5" />
                                 )}
                             </button>
-                        </button>
+                        </div>
                     );
                 })}
             </div>
