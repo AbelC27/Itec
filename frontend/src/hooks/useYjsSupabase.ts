@@ -10,115 +10,156 @@ export interface UseYjsSupabaseReturn {
   isConnected: boolean;
 }
 
+// ────────────────────────────────────────────────────────────────────
+// Module-level cache.
+//
+// This is the **only** reliable way to keep a Y.Doc alive across
+// React Fast Refresh (HMR) and component unmount/remount cycles.
+//
+// Module scope survives HMR because the module identity doesn't
+// change — only the component function gets hot-swapped.
+// ────────────────────────────────────────────────────────────────────
+type CacheEntry = {
+  yDoc: Y.Doc;
+  provider: WebsocketProvider;
+  /** How many mounted hook instances are using this entry right now. */
+  refCount: number;
+  /** setTimeout handle for deferred teardown. */
+  teardownTimer: ReturnType<typeof setTimeout> | null;
+};
+
+const yjsCache = new Map<string, CacheEntry>();
+
+function getOrCreateEntry(
+  documentId: string,
+  profile: Pick<Profile, "id" | "username" | "avatar_color_hex">
+): CacheEntry {
+  const existing = yjsCache.get(documentId);
+  if (existing) {
+    // Cancel any pending teardown — this entry is being reused
+    if (existing.teardownTimer !== null) {
+      clearTimeout(existing.teardownTimer);
+      existing.teardownTimer = null;
+    }
+    existing.refCount += 1;
+
+    // Update awareness in case profile changed
+    existing.provider.awareness.setLocalStateField("user", {
+      name: profile.username,
+      color: profile.avatar_color_hex,
+    });
+
+    return existing;
+  }
+
+  const yDoc = new Y.Doc();
+  const provider = new WebsocketProvider(
+    "ws://localhost:4444",
+    `itecity-${documentId}`,
+    yDoc,
+    { connect: true }
+  );
+
+  provider.awareness.setLocalStateField("user", {
+    name: profile.username,
+    color: profile.avatar_color_hex,
+  });
+
+  const entry: CacheEntry = {
+    yDoc,
+    provider,
+    refCount: 1,
+    teardownTimer: null,
+  };
+
+  yjsCache.set(documentId, entry);
+  return entry;
+}
+
+function releaseEntry(documentId: string): void {
+  const entry = yjsCache.get(documentId);
+  if (!entry) return;
+
+  entry.refCount -= 1;
+  if (entry.refCount > 0) return;
+
+  // Defer actual destruction by a tick so that if a new mount (HMR or
+  // React re-mount) grabs the same documentId immediately, it can
+  // reuse the entry via getOrCreateEntry before we destroy it.
+  entry.teardownTimer = setTimeout(() => {
+    // Double-check: if something reclaimed the entry in the meantime, bail
+    const current = yjsCache.get(documentId);
+    if (current !== entry || current.refCount > 0) return;
+
+    yjsCache.delete(documentId);
+    try {
+      entry.provider.disconnect();
+      entry.provider.destroy();
+    } catch {
+      // ignore teardown errors
+    }
+    try {
+      entry.yDoc.destroy();
+    } catch {
+      // ignore teardown errors
+    }
+  }, 500);
+}
+
 /**
  * Manages a Yjs document and WebSocket provider for collaborative editing.
  *
- * Uses refs to keep a stable Y.Doc/provider across React Fast Refresh (HMR)
- * cycles, preventing content duplication that occurs when a fresh Y.Doc syncs
- * the server state on top of locally-seeded initial content.
+ * Uses a **module-level** cache to keep a single Y.Doc + WebSocketProvider
+ * per documentId alive across:
+ *  - React Fast Refresh (HMR)
+ *  - Component unmount/remount cycles
+ *  - Tab visibility changes (alt+tab)
+ *
+ * This prevents content duplication that occurs when a fresh Y.Doc is
+ * created, seeded with initial content, and then receives the full
+ * document state again from the y-websocket server on sync.
  */
 export function useYjsSupabase(
   documentId: string,
   profile: Pick<Profile, "id" | "username" | "avatar_color_hex">
 ): UseYjsSupabaseReturn | null {
-  const [state, setState] = useState<Omit<UseYjsSupabaseReturn, "isConnected"> | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const entryRef = useRef<CacheEntry | null>(null);
 
-  // Keep a ref so we can detect HMR re-runs for the same documentId and
-  // reuse the existing Y.Doc + provider instead of creating duplicates.
-  const activeDocIdRef = useRef<string | null>(null);
-  const yDocRef = useRef<Y.Doc | null>(null);
-  const providerRef = useRef<WebsocketProvider | null>(null);
+  // Track the documentId so we can release the correct entry on cleanup
+  const documentIdRef = useRef(documentId);
+  documentIdRef.current = documentId;
 
   useEffect(() => {
-    // If we already have a live Y.Doc for this exact documentId (HMR case),
-    // just re-expose it via state without creating a new one.
-    if (
-      activeDocIdRef.current === documentId &&
-      yDocRef.current &&
-      providerRef.current
-    ) {
-      const provider = providerRef.current;
+    const entry = getOrCreateEntry(documentId, profile);
+    entryRef.current = entry;
 
-      // Update awareness in case the profile changed
-      provider.awareness.setLocalStateField("user", {
-        name: profile.username,
-        color: profile.avatar_color_hex,
-      });
-
-      setState({
-        yDoc: yDocRef.current,
-        provider,
-        awareness: provider.awareness,
-      });
-
-      return; // No cleanup — we're reusing existing resources
-    }
-
-    // Different documentId or first mount — tear down any previous resources
-    if (providerRef.current) {
-      providerRef.current.disconnect();
-      providerRef.current.destroy();
-      providerRef.current = null;
-    }
-    if (yDocRef.current) {
-      yDocRef.current.destroy();
-      yDocRef.current = null;
-    }
-
-    const yDoc = new Y.Doc();
-    const provider = new WebsocketProvider(
-      "ws://localhost:4444",
-      `itecity-${documentId}`,
-      yDoc,
-      { connect: true }
-    );
-
-    provider.awareness.setLocalStateField("user", {
-      name: profile.username,
-      color: profile.avatar_color_hex,
-    });
-
-    provider.on("status", ({ status }: { status: string }) => {
+    const statusHandler = ({ status }: { status: string }) => {
       setIsConnected(status === "connected");
-    });
+    };
 
-    // Store in refs so HMR re-runs can reuse them
-    activeDocIdRef.current = documentId;
-    yDocRef.current = yDoc;
-    providerRef.current = provider;
+    entry.provider.on("status", statusHandler);
 
-    setState({
-      yDoc,
-      provider,
-      awareness: provider.awareness,
-    });
+    // If provider is already connected, set state immediately
+    if (entry.provider.wsconnected) {
+      setIsConnected(true);
+    }
 
     return () => {
-      // Only tear down if refs still point to THIS instance.
-      // During HMR the effect re-runs immediately; if the new run reused
-      // these refs, we must NOT destroy them here.
-      if (providerRef.current === provider) {
-        provider.disconnect();
-        provider.destroy();
-        providerRef.current = null;
-      }
-      if (yDocRef.current === yDoc) {
-        yDoc.destroy();
-        yDocRef.current = null;
-      }
-      if (activeDocIdRef.current === documentId) {
-        activeDocIdRef.current = null;
-      }
-      setState(null);
+      entry.provider.off("status", statusHandler);
+      releaseEntry(documentId);
+      entryRef.current = null;
       setIsConnected(false);
     };
   }, [documentId, profile.id, profile.username, profile.avatar_color_hex]);
 
-  if (!state) return null;
+  const entry = entryRef.current;
+  if (!entry) return null;
 
   return {
-    ...state,
+    yDoc: entry.yDoc,
+    provider: entry.provider,
+    awareness: entry.provider.awareness,
     isConnected,
   };
 }

@@ -229,13 +229,19 @@ function EditorWithYjs({
     setCloudSyncState("synced");
     setCloudSyncMessage("Cloud snapshot ready.");
   }, [initialContent]);
+  // Stabilise: extract actual instances so effects only re-run when the
+  // underlying Y.Doc/Provider/Awareness changes, not when the wrapper
+  // object reference from the hook changes (HMR, re-render).
+  const yDocInstance = yjsState?.yDoc ?? null;
+  const providerInstance = yjsState?.provider ?? null;
+  const awarenessInstance = yjsState?.awareness ?? null;
 
   // Create binding when BOTH editor and yjsState are ready
-  // Recreate when either changes
+  // Recreate only when the actual Y.Doc instance or editor changes
   useEffect(() => {
-    if (!yjsState || !editor) return;
+    if (!yDocInstance || !awarenessInstance || !editor) return;
 
-    const yText = yjsState.yDoc.getText("content");
+    const yText = yDocInstance.getText("content");
     const model = editor.getModel();
     if (!model) return;
 
@@ -253,7 +259,7 @@ function EditorWithYjs({
       yText,
       model,
       new Set([editor]),
-      yjsState.awareness
+      awarenessInstance
     );
     bindingRef.current = binding;
 
@@ -266,14 +272,15 @@ function EditorWithYjs({
         // Ignore teardown errors from yjs during rapid unmounts.
       }
     };
-  }, [yjsState, editor]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [yDocInstance, awarenessInstance, editor]);
+
+
 
   useEffect(() => {
-    if (!yjsState) return;
+    if (!yDocInstance || !providerInstance) return;
 
-    const provider = yjsState.provider;
-    const yDoc = yjsState.yDoc;
-    const yText = yDoc.getText("content");
+    const yText = yDocInstance.getText("content");
 
     const applyCloudContent = (nextContent: string) => {
       if (nextContent === yText.toString()) {
@@ -285,7 +292,7 @@ function EditorWithYjs({
       }
 
       isApplyingCloudContentRef.current = true;
-      yDoc.transact(() => {
+      yDocInstance.transact(() => {
         yText.delete(0, yText.length);
         if (nextContent) {
           yText.insert(0, nextContent);
@@ -306,6 +313,9 @@ function EditorWithYjs({
 
       hasSeededInitialContentRef.current = true;
 
+      // If the Y.Text already has content (e.g. from websocket sync,
+      // BroadcastChannel, or the module-level cache keeping the Y.Doc
+      // alive), read it — never re-insert.
       if (yText.length > 0) {
         const nextContent = yText.toString();
         setCode(nextContent);
@@ -347,15 +357,17 @@ function EditorWithYjs({
     };
 
     yText.observe(handleYTextChange);
-    provider.on("sync", handleProviderSync);
+    providerInstance.on("sync", handleProviderSync);
     ensureInitialContent();
 
     return () => {
       yText.unobserve(handleYTextChange);
-      provider.off("sync", handleProviderSync);
+      providerInstance.off("sync", handleProviderSync);
       applyCloudContentRef.current = () => {};
     };
-  }, [initialContent, yjsState]);
+    // Use the actual Y.Doc and Provider instances as deps, NOT the wrapper.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialContent, yDocInstance, providerInstance]);
 
   const handleEditorMount: OnMount = useCallback((editorInstance) => {
     setEditor(editorInstance);
