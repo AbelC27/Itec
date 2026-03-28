@@ -38,6 +38,7 @@ exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
 const executionHandler_1 = require("./executionHandler");
 let isExecuting = false;
+let lastDocumentId = "";
 function detectLanguage(editor) {
     return executionHandler_1.LANGUAGE_MAP[editor.document.languageId];
 }
@@ -61,15 +62,24 @@ async function runCloudExecution(outputChannel) {
         vscode.window.showErrorMessage("iTECify: Editor is empty.");
         return;
     }
+    const documentId = await vscode.window.showInputBox({
+        prompt: "Enter the iTECify Document ID",
+        placeHolder: "e.g. abc123-def456",
+        value: lastDocumentId,
+    });
+    if (!documentId) {
+        return;
+    }
+    lastDocumentId = documentId;
     outputChannel.clear();
     outputChannel.show(true);
-    outputChannel.appendLine(`[iTECify] Running ${language} code in cloud...`);
+    outputChannel.appendLine(`[iTECify] Running ${language} code in cloud (document: ${documentId})...`);
     isExecuting = true;
     try {
         await (0, executionHandler_1.executeCode)({
             language,
             code,
-            documentId: "vscode-local-run",
+            documentId,
             outputChannel,
         });
     }

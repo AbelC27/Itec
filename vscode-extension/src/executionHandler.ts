@@ -28,6 +28,36 @@ export const LANGUAGE_MAP: Record<string, string> = {
   javascriptreact: "javascript",
 };
 
+// --- AI Explanation Helper ---
+
+async function requestAiExplanation(
+  language: string,
+  code: string,
+  stderr: string,
+  outputChannel: vscode.OutputChannel
+): Promise<void> {
+  try {
+    outputChannel.appendLine("[iTECify AI] Analyzing error...");
+    const response = await fetch("http://localhost:8000/api/ai/explain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language, code, stderr }),
+    });
+    if (response.ok) {
+      const data = (await response.json()) as { explanation: string };
+      outputChannel.appendLine("[iTECify AI] " + data.explanation);
+    } else {
+      outputChannel.appendLine(
+        "[iTECify AI] Could not reach the iTECify backend for error analysis."
+      );
+    }
+  } catch {
+    outputChannel.appendLine(
+      "[iTECify AI] Could not reach the iTECify backend for error analysis."
+    );
+  }
+}
+
 // --- Execution Function ---
 
 export function executeCode(options: ExecutionOptions): Promise<void> {
@@ -35,6 +65,7 @@ export function executeCode(options: ExecutionOptions): Promise<void> {
 
   return new Promise<void>((resolve, reject) => {
     let settled = false;
+    let stderrBuffer = "";
 
     const ws = new WebSocket(`ws://localhost:8000/ws/execute/${documentId}`);
 
@@ -61,6 +92,7 @@ export function executeCode(options: ExecutionOptions): Promise<void> {
 
         case "stderr":
           outputChannel.appendLine("[stderr] " + msg.data);
+          stderrBuffer += msg.data + "\n";
           break;
 
         case "complete":
@@ -74,6 +106,25 @@ export function executeCode(options: ExecutionOptions): Promise<void> {
           vscode.window.showInformationMessage(
             "iTECify: Execution complete (" + msg.data.execution_time + "s)"
           );
+          if (msg.data.exit_code > 0 && stderrBuffer.length > 0) {
+            vscode.window
+              .showErrorMessage(
+                "iTECify: Execution failed (exit code " +
+                  msg.data.exit_code +
+                  ")",
+                "🤖 Explain with AI"
+              )
+              .then((selection) => {
+                if (selection === "🤖 Explain with AI") {
+                  requestAiExplanation(
+                    language,
+                    code,
+                    stderrBuffer,
+                    outputChannel
+                  );
+                }
+              });
+          }
           ws.close();
           if (!settled) {
             settled = true;

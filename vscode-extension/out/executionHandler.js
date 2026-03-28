@@ -45,18 +45,39 @@ exports.LANGUAGE_MAP = {
     javascript: "javascript",
     javascriptreact: "javascript",
 };
+// --- AI Explanation Helper ---
+async function requestAiExplanation(language, code, stderr, outputChannel) {
+    try {
+        outputChannel.appendLine("[iTECify AI] Analyzing error...");
+        const response = await fetch("http://localhost:8000/api/ai/explain", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ language, code, stderr }),
+        });
+        if (response.ok) {
+            const data = (await response.json());
+            outputChannel.appendLine("[iTECify AI] " + data.explanation);
+        }
+        else {
+            outputChannel.appendLine("[iTECify AI] Could not reach the iTECify backend for error analysis.");
+        }
+    }
+    catch {
+        outputChannel.appendLine("[iTECify AI] Could not reach the iTECify backend for error analysis.");
+    }
+}
 // --- Execution Function ---
 function executeCode(options) {
     const { language, code, documentId, outputChannel } = options;
     return new Promise((resolve, reject) => {
         let settled = false;
-        const ws = new ws_1.default("ws://localhost:8000/ws/execute");
+        let stderrBuffer = "";
+        const ws = new ws_1.default(`ws://localhost:8000/ws/execute/${documentId}`);
         ws.on("open", () => {
             outputChannel.appendLine("[iTECify] Connected. Sending code...");
             const payload = {
                 language: language,
                 code,
-                document_id: documentId,
             };
             ws.send(JSON.stringify(payload));
         });
@@ -71,6 +92,7 @@ function executeCode(options) {
                     break;
                 case "stderr":
                     outputChannel.appendLine("[stderr] " + msg.data);
+                    stderrBuffer += msg.data + "\n";
                     break;
                 case "complete":
                     outputChannel.appendLine("\n✓ Execution complete in " +
@@ -79,6 +101,17 @@ function executeCode(options) {
                         msg.data.exit_code +
                         ")");
                     vscode.window.showInformationMessage("iTECify: Execution complete (" + msg.data.execution_time + "s)");
+                    if (msg.data.exit_code > 0 && stderrBuffer.length > 0) {
+                        vscode.window
+                            .showErrorMessage("iTECify: Execution failed (exit code " +
+                            msg.data.exit_code +
+                            ")", "🤖 Explain with AI")
+                            .then((selection) => {
+                            if (selection === "🤖 Explain with AI") {
+                                requestAiExplanation(language, code, stderrBuffer, outputChannel);
+                            }
+                        });
+                    }
                     ws.close();
                     if (!settled) {
                         settled = true;

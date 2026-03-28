@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import shlex
 import struct
 import time
@@ -7,6 +8,8 @@ import docker
 
 from schemas import LANGUAGE_IMAGES, ResourceEstimate, SendCallback
 from ai_analyzer import analyze
+
+logger = logging.getLogger(__name__)
 
 
 class DockerIsolationManager:
@@ -70,22 +73,33 @@ class DockerIsolationManager:
             # Start the container
             await asyncio.to_thread(container.start)
 
-            # Stream logs until container exits or deadline is reached
-            await self._stream_logs(container, send, deadline)
+            # Wait for the container to finish (with timeout)
+            try:
+                result = await asyncio.to_thread(
+                    container.wait, timeout=self.TIMEOUT_SECONDS
+                )
+                timed_out = False
+            except Exception:
+                # Timeout or error — kill the container
+                timed_out = True
+                try:
+                    await asyncio.to_thread(container.kill)
+                except Exception:
+                    pass
 
-            # Check if the container is still running after streaming
-            await asyncio.to_thread(container.reload)
-            status = container.status
+            execution_time = round(time.time() - start_time, 3)
 
-            if status == "running":
-                # Timeout: container still running past deadline — force kill
-                await asyncio.to_thread(container.kill)
+            if timed_out:
                 await send("error", "Timeout reached")
             else:
-                # Container exited normally — get exit code and execution time
-                result = await asyncio.to_thread(container.wait)
+                # Container exited — read all logs after exit (reliable)
+                chunks = await asyncio.to_thread(
+                    self._read_log_chunks, container, deadline
+                )
+                for stream_type, text in chunks:
+                    await send(stream_type, text)
+
                 exit_code = result.get("StatusCode", -1)
-                execution_time = round(time.time() - start_time, 3)
                 await send(
                     "complete",
                     {"execution_time": execution_time, "exit_code": exit_code},
@@ -146,39 +160,57 @@ class DockerIsolationManager:
         HEADER_SIZE = 8
         results: list[tuple[str, str]] = []
 
-        log_stream = container.logs(
-            stream=True, follow=True, stdout=True, stderr=True
+        # Read all logs at once (container has already exited)
+        raw = container.logs(stdout=True, stderr=True, stream=False, follow=False)
+        if not raw:
+            return results
+
+        buf = bytes(raw)
+
+        # Check if the output has multiplexed Docker headers.
+        # Multiplexed frames start with stream_byte 1 (stdout) or 2 (stderr)
+        # followed by 3 zero padding bytes. If the first bytes don't match
+        # this pattern, Docker returned raw (non-multiplexed) output.
+        is_multiplexed = (
+            len(buf) >= HEADER_SIZE
+            and buf[0] in (1, 2)
+            and buf[1:4] == b"\x00\x00\x00"
         )
 
-        buf = b""
-        for chunk in log_stream:
+        if not is_multiplexed:
+            # Non-multiplexed: read stdout and stderr separately
+            stdout_raw = container.logs(stdout=True, stderr=False, stream=False, follow=False)
+            stderr_raw = container.logs(stdout=False, stderr=True, stream=False, follow=False)
+            if stdout_raw:
+                text = bytes(stdout_raw).decode("utf-8", errors="replace")
+                if text:
+                    results.append(("stdout", text))
+            if stderr_raw:
+                text = bytes(stderr_raw).decode("utf-8", errors="replace")
+                if text:
+                    results.append(("stderr", text))
+            return results
+
+        offset = 0
+        while offset + HEADER_SIZE <= len(buf):
             if time.time() >= deadline:
                 break
 
-            buf += chunk
+            stream_byte = buf[offset]
+            frame_size = struct.unpack(">I", buf[offset + 4 : offset + 8])[0]
 
-            # Process as many complete frames as possible from the buffer
-            while len(buf) >= HEADER_SIZE:
-                if time.time() >= deadline:
-                    break
+            if offset + HEADER_SIZE + frame_size > len(buf):
+                break
 
-                # Parse the 8-byte header
-                stream_byte = buf[0]
-                frame_size = struct.unpack(">I", buf[4:8])[0]
+            payload = buf[offset + HEADER_SIZE : offset + HEADER_SIZE + frame_size]
+            offset += HEADER_SIZE + frame_size
 
-                # Wait for the full frame payload to arrive
-                if len(buf) < HEADER_SIZE + frame_size:
-                    break
+            msg_type = STREAM_TYPE_MAP.get(stream_byte)
+            if msg_type is None:
+                continue
 
-                payload = buf[HEADER_SIZE : HEADER_SIZE + frame_size]
-                buf = buf[HEADER_SIZE + frame_size :]
-
-                msg_type = STREAM_TYPE_MAP.get(stream_byte)
-                if msg_type is None:
-                    continue
-
-                text = payload.decode("utf-8", errors="replace")
-                results.append((msg_type, text))
+            text = payload.decode("utf-8", errors="replace")
+            results.append((msg_type, text))
 
         return results
 

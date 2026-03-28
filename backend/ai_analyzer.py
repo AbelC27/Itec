@@ -89,3 +89,41 @@ async def analyze(code: str) -> ResourceEstimate:
     except Exception as exc:
         logger.warning("AI analysis failed (%s) — using safe defaults", exc)
         return _safe_defaults()
+
+# System prompt for error explanation — uses {language} placeholder formatted at call time
+ERROR_EXPLAIN_PROMPT = (
+    "You are a concise coding assistant. The user ran {language} code that failed.\n"
+    "Explain the error in 2-3 sentences, then provide the corrected code.\n"
+    "Do not ramble. Be direct."
+)
+
+
+async def explain_error(language: str, code: str, stderr: str) -> str:
+    """
+    Ask the LLM to explain a code execution error and suggest a fix.
+
+    Args:
+        language: Programming language (e.g. "python", "javascript")
+        code: The source code that was executed
+        stderr: The stderr output from the failed execution
+
+    Returns:
+        A string containing the AI's explanation and corrected code,
+        or a fallback message on any failure. Never raises.
+    """
+    try:
+        response = await client.chat.completions.create(
+            model="openai/gpt-4o",
+            temperature=0,
+            messages=[
+                {"role": "system", "content": ERROR_EXPLAIN_PROMPT.format(language=language)},
+                {"role": "user", "content": f"Code:\n{code}\n\nError:\n{stderr}"},
+            ],
+        )
+        content = response.choices[0].message.content
+        if content and content.strip():
+            return content.strip()
+        return "The AI returned an empty response. Please review the error output manually."
+    except Exception as exc:
+        logger.warning("AI error explanation failed (%s)", exc)
+        return "Unable to analyze this error automatically. Please review the stderr output above."
