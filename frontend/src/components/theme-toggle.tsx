@@ -1,6 +1,7 @@
 "use client";
 
 import { useTheme } from "next-themes";
+import { Button } from "@/components/ui/button";
 
 function SunIcon() {
     return (
@@ -36,13 +37,13 @@ export function ThemeToggle() {
     const isDark = resolvedTheme === "dark";
 
     return (
-        <button
-            type="button"
+        <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setTheme(isDark ? "light" : "dark")}
             aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
-            className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-border/40 bg-surface/70 text-foreground shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:bg-surface/90 backdrop-blur-xl"
         >
             {isDark ? <SunIcon /> : <MoonIcon />}
-        </button>
+        </Button>
     );
 }

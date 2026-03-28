@@ -6,6 +6,7 @@ import { getDocument } from "@/lib/api";
 import type { Document } from "@/types/database";
 import { useActiveDocument } from "@/components/providers/active-document-provider";
 import VsCodeLinkBanner from "@/components/workspace/vscode-link-banner";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // Dynamically import the collaborative editor to prevent SSR issues
 const CollaborativeEditor = dynamic(
@@ -17,6 +18,7 @@ export default function ObsidianWorkspacePage() {
     const { activeDocumentId, isReady } = useActiveDocument();
     const [document, setDocument] = useState<Document | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [isDocLoading, setIsDocLoading] = useState(false);
 
     const handleSnapshotChange = useCallback((content: string) => {
         setDocument((current) => (
@@ -43,6 +45,7 @@ export default function ObsidianWorkspacePage() {
             setDocument(null);
             setError(null);
         });
+        setIsDocLoading(true);
 
         const load = async () => {
             try {
@@ -54,6 +57,8 @@ export default function ObsidianWorkspacePage() {
                         err instanceof Error ? err.message : "Failed to load document"
                     );
                 }
+            } finally {
+                if (isMounted) setIsDocLoading(false);
             }
         };
 
@@ -66,7 +71,7 @@ export default function ObsidianWorkspacePage() {
     if (!isReady) {
         return (
             <div className="flex h-[calc(100vh-8rem)] items-center justify-center">
-                <div className="text-sm uppercase tracking-[0.2em] text-slate-500 animate-pulse">
+                <div className="text-sm uppercase tracking-[0.2em] text-muted-foreground animate-pulse">
                     Loading Workspace...
                 </div>
             </div>
@@ -76,12 +81,12 @@ export default function ObsidianWorkspacePage() {
     // If no document is selected, show an empty state prompting the user
     if (!activeDocumentId) {
         return (
-            <div className="flex h-[calc(100vh-8rem)] items-center justify-center rounded-2xl border border-slate-900 bg-slate-950/50">
+            <div className="flex h-[calc(100vh-8rem)] items-center justify-center rounded-2xl border border-border bg-card">
                 <div className="text-center space-y-4">
-                    <p className="text-sm uppercase tracking-[0.2em] text-slate-500">
+                    <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">
                         No Document Selected
                     </p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-muted-foreground">
                         Please select a document from the Homepage to start collaborating.
                     </p>
                 </div>
@@ -91,20 +96,10 @@ export default function ObsidianWorkspacePage() {
 
     if (error) {
         return (
-            <div className="flex h-[calc(100vh-8rem)] items-center justify-center rounded-2xl border border-red-900/50 bg-slate-950/50">
-                <div className="text-center space-y-4 text-red-400 font-mono text-sm max-w-md px-6">
+            <div className="flex h-[calc(100vh-8rem)] items-center justify-center rounded-2xl border border-destructive/50 bg-destructive/10">
+                <div className="text-center space-y-4 text-destructive-foreground font-mono text-sm max-w-md px-6">
                     <span className="text-2xl">⚠</span>
                     <p>{error}</p>
-                </div>
-            </div>
-        );
-    }
-
-    if (!document) {
-        return (
-            <div className="flex h-[calc(100vh-8rem)] items-center justify-center">
-                <div className="text-sm uppercase tracking-[0.2em] text-slate-500 animate-pulse">
-                    Loading Document...
                 </div>
             </div>
         );
