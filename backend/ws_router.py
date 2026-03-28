@@ -52,12 +52,18 @@ async def save_execution(
     stdout: str,
     stderr: str,
     execution_time: float,
+    exit_code: int,
+    session_id: str | None = None,
 ) -> None:
     """Insert a row into execution_history. Logs errors, never raises."""
     try:
         client = get_supabase_client()
+        sid = session_id or document_id
+        execution_status = "failed" if exit_code != 0 else "success"
         record = {
             "document_id": document_id,
+            "session_id": sid,
+            "execution_status": execution_status,
             "language": language,
             "code_snapshot": code,
             "mem_limit": mem_limit,
@@ -111,6 +117,7 @@ async def execute_code_ws(websocket: WebSocket, document_id: str) -> None:
                 stderr_buf.append(data)
             elif msg_type == "complete":
                 execution_metadata["execution_time"] = data.get("execution_time", 0.0)
+                execution_metadata["exit_code"] = data.get("exit_code", -1)
             await manager.broadcast({"type": msg_type, "data": data}, document_id)
 
         docker_mgr = DockerIsolationManager()
@@ -126,6 +133,7 @@ async def execute_code_ws(websocket: WebSocket, document_id: str) -> None:
 
         # Fire-and-forget DB insert (only if document_id provided and execution completed)
         if document_id and estimate and "execution_time" in execution_metadata:
+            exit_code = int(execution_metadata.get("exit_code", -1))
             asyncio.create_task(save_execution(
                 document_id=document_id,
                 language=language,
@@ -135,6 +143,8 @@ async def execute_code_ws(websocket: WebSocket, document_id: str) -> None:
                 stdout="".join(stdout_buf),
                 stderr="".join(stderr_buf),
                 execution_time=execution_metadata["execution_time"],
+                exit_code=exit_code,
+                session_id=document_id,
             ))
 
     except WebSocketDisconnect:

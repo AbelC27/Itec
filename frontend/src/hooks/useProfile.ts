@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { createClient } from "@/lib/supabase/client";
-import type { Profile } from "@/types/database";
+import type { Profile, UserRole } from "@/types/database";
 
-type ProfileIdentity = Pick<Profile, "id" | "username" | "avatar_color_hex">;
+type ProfileIdentity = Pick<Profile, "id" | "username" | "avatar_color_hex" | "role">;
 
 interface UseProfileReturn {
   profile: ProfileIdentity | null;
@@ -31,11 +31,13 @@ export function useProfile(): UseProfileReturn {
         const supabase = createClient();
         const { data, error } = await supabase
           .from("profiles")
-          .select("id, username, avatar_color_hex")
+          .select("id, username, avatar_color_hex, role")
           .eq("id", user!.id)
           .single();
 
         if (cancelled) return;
+
+        const fallbackRole: UserRole = "student";
 
         if (error || !data) {
           // Fallback identity on network error or missing row
@@ -43,12 +45,16 @@ export function useProfile(): UseProfileReturn {
             id: user!.id,
             username: user!.email ?? user!.id,
             avatar_color_hex: "#6B7280",
+            role: fallbackRole,
           });
         } else {
+          const role: UserRole =
+            data.role === "teacher" || data.role === "student" ? data.role : fallbackRole;
           setProfile({
             id: data.id,
             username: data.username,
             avatar_color_hex: data.avatar_color_hex,
+            role,
           });
         }
       } catch {
@@ -58,6 +64,7 @@ export function useProfile(): UseProfileReturn {
           id: user!.id,
           username: user!.email ?? user!.id,
           avatar_color_hex: "#6B7280",
+          role: "student",
         });
       } finally {
         if (!cancelled) {

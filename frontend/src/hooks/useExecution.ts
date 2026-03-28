@@ -53,7 +53,11 @@ export interface UseExecutionReturn {
  * close with a 1-second delay. `execute()` sends `{ language, code }` over
  * the existing connection instead of opening a new one.
  */
-export function useExecution(documentId: string): UseExecutionReturn {
+export function useExecution(
+  documentId: string,
+  options?: { enabled?: boolean }
+): UseExecutionReturn {
+  const enabled = options?.enabled !== false;
   const [isRunning, setIsRunning] = useState(false);
   const [output, setOutput] = useState("");
   const [stderrStr, setStderrStr] = useState("");
@@ -178,11 +182,12 @@ export function useExecution(documentId: string): UseExecutionReturn {
         wsRef.current = null;
       }
     };
-  }, [documentId]);
+  }, [documentId, enabled]);
 
   // ── execute(): send over the existing persistent socket ────────────
   const execute = useCallback(
     (language: string, code: string) => {
+      if (!enabled) return;
       // Reset output state
       setOutput("");
       setStderrStr("");
@@ -203,7 +208,7 @@ export function useExecution(documentId: string): UseExecutionReturn {
         setError("Connection unavailable. Reconnecting\u2026");
       }
     },
-    []
+    [enabled]
   );
 
   const clear = useCallback(() => {

@@ -15,6 +15,7 @@ import {
 } from "../lib/api";
 import {getChatSessions, createChatSession, deleteChatSession, getChatMessages, saveChatMessage } from "../lib/api";
 import type { AiChatSession } from "../lib/api";
+import type { UserRole } from "@/types/database";
 import type * as monaco from "monaco-editor";
 import {
   Loader2, Play, X, Minus, ChevronRight, Plus, Paperclip,
@@ -49,6 +50,8 @@ interface CollaborativeEditorProps {
   language?: string;
   initialContent?: string;
   onSnapshotChange?: (content: string) => void;
+  /** Teacher observation mode: Yjs sync stays live; local edits are blocked. */
+  readOnly?: boolean;
 }
 
 type ChatMessage = {
@@ -71,6 +74,7 @@ export default function CollaborativeEditor({
   language = "python",
   initialContent = "",
   onSnapshotChange,
+  readOnly = false,
 }: CollaborativeEditorProps) {
   const { profile, isLoading } = useProfile();
 
@@ -84,12 +88,13 @@ export default function CollaborativeEditor({
 
   return (
     <EditorWithYjs
-      key={documentId}
+      key={`${documentId}-${readOnly ? "ro" : "rw"}`}
       documentId={documentId}
       profile={profile}
       language={language}
       initialContent={initialContent}
       onSnapshotChange={onSnapshotChange}
+      readOnly={readOnly}
     />
   );
 }
@@ -100,12 +105,14 @@ function EditorWithYjs({
   language,
   initialContent,
   onSnapshotChange,
+  readOnly = false,
 }: {
   documentId: string;
-  profile: { id: string; username: string; avatar_color_hex: string };
+  profile: { id: string; username: string; avatar_color_hex: string; role: UserRole };
   language: string;
   initialContent: string;
   onSnapshotChange?: (content: string) => void;
+  readOnly?: boolean;
 }) {
   const yjsState = useYjsSupabase(documentId, profile);
   const bindingRef = useRef<MonacoBinding | null>(null);
@@ -130,6 +137,12 @@ function EditorWithYjs({
 
   // Load chat sessions on mount
   useEffect(() => {
+    if (readOnly) {
+      setChatSessions([]);
+      setActiveSessionId(null);
+      setIsLoadingSessions(false);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -146,7 +159,7 @@ function EditorWithYjs({
       }
     })();
     return () => { cancelled = true; };
-  }, [documentId]);
+  }, [documentId, readOnly]);
 
   // Load messages when active session changes
   useEffect(() => {
@@ -201,8 +214,8 @@ function EditorWithYjs({
   // Hook up history
   const historyHook = useHistory(documentId);
 
-  // Execution hook
-  const execution = useExecution(documentId);
+  // Execution hook (disabled in teacher observation mode — no execute WS)
+  const execution = useExecution(documentId, { enabled: !readOnly });
 
   // Confetti easter egg
   useEffect(() => {
@@ -377,7 +390,13 @@ function EditorWithYjs({
 
   const handleEditorMount: OnMount = useCallback((editorInstance) => {
     setEditor(editorInstance);
-  }, []);
+    editorInstance.updateOptions({ readOnly });
+  }, [readOnly]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.updateOptions({ readOnly });
+  }, [editor, readOnly]);
 
   const handleCodeChange = useCallback(
     (newCode: string) => {
@@ -400,6 +419,7 @@ function EditorWithYjs({
   );
 
   const handlePushToCloud = useCallback(async () => {
+    if (readOnly) return;
     if (!yjsState) {
       setCloudSyncState("error");
       setCloudSyncMessage("Editor sync is still connecting.");
@@ -438,9 +458,10 @@ function EditorWithYjs({
         err instanceof Error ? err.message : "Failed to push changes to the cloud."
       );
     }
-  }, [code, documentId, editor, onSnapshotChange, yjsState]);
+  }, [code, documentId, editor, onSnapshotChange, readOnly, yjsState]);
 
   const handlePullFromCloud = useCallback(async () => {
+    if (readOnly) return;
     if (!yjsState) {
       setCloudSyncState("error");
       setCloudSyncMessage("Editor sync is still connecting.");
@@ -474,9 +495,10 @@ function EditorWithYjs({
         err instanceof Error ? err.message : "Failed to pull changes from the cloud."
       );
     }
-  }, [code, documentId, editor, onSnapshotChange, yjsState]);
+  }, [code, documentId, editor, onSnapshotChange, readOnly, yjsState]);
 
   const handleRunCode = useCallback(() => {
+    if (readOnly) return;
     const currentCode = editor?.getValue() ?? code;
     if (!currentCode.trim()) return;
 
@@ -489,9 +511,10 @@ function EditorWithYjs({
     setTimeout(() => {
       historyHook.refresh();
     }, 2000);
-  }, [editor, code, language, execution, historyHook]);
+  }, [editor, code, language, execution, historyHook, readOnly]);
 
   const handleSendChat = useCallback(async () => {
+    if (readOnly) return;
     const trimmed = chatInput.trim();
     if (!trimmed) return;
 
@@ -537,6 +560,7 @@ function EditorWithYjs({
         message: trimmed,
         code: editor?.getValue() ?? code,
         history,
+        user_role: profile.role,
       });
 
       const assistantMessage: ChatMessage = {
@@ -573,7 +597,7 @@ function EditorWithYjs({
     } finally {
       setIsSending(false);
     }
-  }, [chatInput, editor, code, activeSessionId, documentId, chatMessages]);
+  }, [chatInput, editor, code, activeSessionId, documentId, chatMessages, profile.role, readOnly]);
 
   const handleChatKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -621,6 +645,11 @@ function EditorWithYjs({
           {/* ── Status Bar ─────────────────────────────────── */}
           <div className="flex items-center justify-between gap-4 px-6 py-2.5 bg-secondary/60 border-b border-border">
             <div className="flex items-center gap-3 flex-wrap">
+              {readOnly ? (
+                <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-amber-300 border border-amber-500/40 bg-amber-500/10 px-2 py-1 rounded-lg">
+                  Live view · read-only
+                </div>
+              ) : null}
               <div className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground bg-secondary px-2 py-1 rounded-lg">
                 {execution.isScanning ? (
                   <>
@@ -659,7 +688,7 @@ function EditorWithYjs({
               <button
                 type="button"
                 onClick={handlePullFromCloud}
-                disabled={!isSyncReady || isSyncBusy}
+                disabled={readOnly || !isSyncReady || isSyncBusy}
                 className="flex items-center gap-1.5 border-none rounded-lg px-4 py-2 text-[11px] uppercase tracking-widest font-extrabold bg-slate-800 text-slate-200 cursor-pointer transition-all duration-150 hover:bg-slate-700 disabled:opacity-60 disabled:cursor-not-allowed"
                 title={cloudSyncMessage}
               >
@@ -673,7 +702,7 @@ function EditorWithYjs({
               <button
                 type="button"
                 onClick={handlePushToCloud}
-                disabled={!isSyncReady || isSyncBusy || cloudSyncState === "synced"}
+                disabled={readOnly || !isSyncReady || isSyncBusy || cloudSyncState === "synced"}
                 className={`flex items-center gap-1.5 border-none rounded-lg px-4 py-2 text-[11px] uppercase tracking-widest font-extrabold text-slate-50 cursor-pointer transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed ${
                   cloudSyncState === "conflict"
                     ? "bg-blue-700 hover:bg-blue-600"
@@ -693,7 +722,7 @@ function EditorWithYjs({
               <button
                 type="button"
                 onClick={handleRunCode}
-                disabled={execution.isRunning}
+                disabled={readOnly || execution.isRunning}
                 className="flex items-center gap-1.5 border-none rounded-lg px-4 py-2 text-[11px] uppercase tracking-widest font-extrabold bg-primary text-primary-foreground cursor-pointer transition-all duration-150 hover:shadow-[0_0_20px_rgba(250,250,250,0.15)] disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {execution.isRunning ? (
@@ -725,8 +754,9 @@ function EditorWithYjs({
                 onMount={handleEditorMount}
                 onChange={handleMonacoChange}
                 options={{
+                  readOnly,
                   minimap: { enabled: false },
-                  quickSuggestions: true,
+                  quickSuggestions: !readOnly,
                   suggestOnTriggerCharacters: true,
                   parameterHints: { enabled: true },
                   wordBasedSuggestions: "currentDocument",
@@ -886,12 +916,14 @@ function EditorWithYjs({
                         </div>
                         <button
                           type="button"
+                          disabled={readOnly}
                           onClick={() => {
+                            if (readOnly) return;
                             if (editor && confirm("Restore this code snapshot? Current editor contents will be overwritten.")) {
                               editor.setValue(entry.code_snapshot);
                             }
                           }}
-                          className="px-2 py-1 rounded bg-blue-500/10 border border-blue-500/30 text-blue-300 text-[10px] uppercase cursor-pointer transition-all duration-200 hover:bg-blue-500/20"
+                          className="px-2 py-1 rounded bg-blue-500/10 border border-blue-500/30 text-blue-300 text-[10px] uppercase cursor-pointer transition-all duration-200 hover:bg-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           Restore Code
                         </button>
@@ -906,6 +938,7 @@ function EditorWithYjs({
         </section>
 
         {/* ── AI Chat Panel ──────────────────────────────── */}
+        {!readOnly ? (
         <aside className="w-80 flex flex-col border-l border-border bg-background/70 backdrop-blur-xl max-lg:hidden">
           {/* Chat session tabs */}
           <div className="px-3 py-2 border-b border-border flex flex-col gap-1 max-h-[140px] overflow-y-auto">
@@ -1095,6 +1128,7 @@ function EditorWithYjs({
             </div>
           </div>
         </aside>
+        ) : null}
       </main>
     </div>
   );
