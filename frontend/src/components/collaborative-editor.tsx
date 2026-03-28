@@ -7,7 +7,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useYjsSupabase } from "@/hooks/useYjsSupabase";
 import { useExecution } from "@/hooks/useExecution";
 import { useHistory } from "@/hooks/useHistory";
-import { getWsBaseUrl } from "../lib/api";
+import { getWsBaseUrl, sendAiChat, ApiError } from "../lib/api";
 import type * as monaco from "monaco-editor";
 import styles from "./collaborative-editor.module.css";
 
@@ -61,6 +61,7 @@ function EditorWithYjs({
   const [terminalLines, setTerminalLines] = useState<string[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
   const [activeTab, setActiveTab] = useState<"Terminal" | "History">("Terminal");
 
   // Hook up history
@@ -205,7 +206,7 @@ function EditorWithYjs({
     }, 2000);
   }, [editor, code, language, execution, historyHook]);
 
-  const handleSendChat = useCallback(() => {
+  const handleSendChat = useCallback(async () => {
     const trimmed = chatInput.trim();
     if (!trimmed) return;
 
@@ -219,18 +220,46 @@ function EditorWithYjs({
       createdAt: now,
     };
 
-    const assistantMessage: ChatMessage = {
-      id: typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${now}-assistant`,
-      role: "assistant",
-      content: "AI chat is not connected yet. Hook this up to your backend to respond.",
-      createdAt: now + 1,
-    };
-
-    setChatMessages((prev) => [...prev, userMessage, assistantMessage]);
+    setChatMessages((prev) => [...prev, userMessage]);
     setChatInput("");
-  }, [chatInput]);
+    setIsSending(true);
+
+    try {
+      const { reply } = await sendAiChat({
+        message: trimmed,
+        code: editor?.getValue() ?? code,
+      });
+
+      const assistantMessage: ChatMessage = {
+        id: typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-assistant`,
+        role: "assistant",
+        content: reply,
+        createdAt: Date.now(),
+      };
+      setChatMessages((prev) => [...prev, assistantMessage]);
+    } catch (err) {
+      const errorContent =
+        err instanceof ApiError
+          ? "AI service is currently unavailable."
+          : err instanceof TypeError
+            ? "Could not reach the AI service. Check your connection."
+            : "AI service is currently unavailable.";
+
+      const errorMessage: ChatMessage = {
+        id: typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-assistant`,
+        role: "assistant",
+        content: errorContent,
+        createdAt: Date.now(),
+      };
+      setChatMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsSending(false);
+    }
+  }, [chatInput, editor, code]);
 
   const handleChatKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -656,6 +685,11 @@ function EditorWithYjs({
                 </div>
               ))
             )}
+            {isSending && (
+              <div className={styles.chatBubble} style={{ opacity: 0.6 }}>
+                Thinking…
+              </div>
+            )}
           </div>
 
           <div className={styles.chatInput}>
@@ -675,7 +709,7 @@ function EditorWithYjs({
                     <span className={styles.icon}>mic</span>
                   </button>
                 </div>
-                <button type="button" className={styles.sendButton} onClick={handleSendChat}>
+                <button type="button" className={styles.sendButton} onClick={handleSendChat} disabled={isSending} style={isSending ? { opacity: 0.5, cursor: "not-allowed" } : undefined}>
                   <span className={styles.icon}>send</span>
                 </button>
               </div>

@@ -46,11 +46,12 @@ export interface UseExecutionReturn {
 }
 
 /**
- * Custom hook for real-time code execution via WebSocket.
+ * Custom hook for real-time code execution via a persistent WebSocket.
  *
- * Connects to `ws://<host>/ws/execute/{documentId}`, sends
- * `{ language, code }`, and streams stdout/stderr/error/complete
- * messages back into React state.
+ * Opens a single WebSocket to `ws://<host>/ws/execute/{documentId}` on mount,
+ * keeps it alive for the component's lifetime, and auto-reconnects on dirty
+ * close with a 1-second delay. `execute()` sends `{ language, code }` over
+ * the existing connection instead of opening a new one.
  */
 export function useExecution(documentId: string): UseExecutionReturn {
   const [isRunning, setIsRunning] = useState(false);
@@ -59,69 +60,49 @@ export function useExecution(documentId: string): UseExecutionReturn {
   const [error, setError] = useState<string | null>(null);
   const [executionTime, setExecutionTime] = useState<number | null>(null);
   const [exitCode, setExitCode] = useState<number | null>(null);
-  
+
   const [isExplaining, setIsExplaining] = useState(false);
   const [aiExplanation, setAiExplanation] = useState<string | null>(null);
   const [securityAlert, setSecurityAlert] = useState<string | null>(null);
   const [aiResources, setAiResources] = useState<{ cpu: string; ram: string } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [easterEggTriggered, setEasterEggTriggered] = useState(false);
+
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const intentionalCloseRef = useRef(false);
 
-  // Cleanup on unmount
+  // ── Persistent WebSocket lifecycle ─────────────────────────────────
   useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-    };
-  }, []);
+    intentionalCloseRef.current = false;
 
-  const execute = useCallback(
-    (language: string, code: string) => {
-      // Close any existing connection
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+    let wsUrl: string;
+    try {
+      const baseUrl = getWsBaseUrl();
+      wsUrl = `${baseUrl}/ws/execute/${documentId}`;
+    } catch {
+      // Env var missing — nothing to connect to.
+      setError("WebSocket URL is not configured. Set NEXT_PUBLIC_WS_URL.");
+      return;
+    }
 
-      // Reset state
-      setOutput("");
-      setStderrStr("");
-      setError(null);
-      setExecutionTime(null);
-      setExitCode(null);
-      setAiExplanation(null);
-      setSecurityAlert(null);
-      setAiResources(null);
-      setIsScanning(false);
-      setEasterEggTriggered(false);
-      setIsRunning(true);
-
-      let wsUrl: string;
-      try {
-        const baseUrl = getWsBaseUrl();
-        wsUrl = `${baseUrl}/ws/execute/${documentId}`;
-      } catch {
-        setError("WebSocket URL is not configured. Set NEXT_PUBLIC_WS_URL.");
-        setIsRunning(false);
-        return;
-      }
-
+    function connect() {
       let socket: WebSocket;
       try {
         socket = new WebSocket(wsUrl);
       } catch {
-        setError("Failed to create WebSocket connection.");
-        setIsRunning(false);
+        // Creation failed — retry after 1 s unless unmounted.
+        if (!intentionalCloseRef.current) {
+          reconnectTimerRef.current = setTimeout(connect, 1000);
+        }
         return;
       }
 
       wsRef.current = socket;
 
       socket.onopen = () => {
-        socket.send(JSON.stringify({ language, code }));
+        // Connection established — clear any lingering error.
+        setError(null);
       };
 
       socket.onmessage = (event) => {
@@ -173,27 +154,56 @@ export function useExecution(documentId: string): UseExecutionReturn {
 
       socket.onerror = () => {
         setError("WebSocket connection error. Is the backend running?");
-        setIsRunning(false);
       };
 
-      socket.onclose = (event) => {
-        // Only set error if we didn't already finish or error
-        if (wsRef.current === socket) {
-          wsRef.current = null;
-          setIsRunning((running) => {
-            if (running) {
-              // Unexpected close
-              if (!event.wasClean) {
-                setError("Connection lost. The backend may be unreachable.");
-              }
-              return false;
-            }
-            return running;
-          });
+      socket.onclose = () => {
+        if (wsRef.current !== socket) return; // stale socket guard
+        wsRef.current = null;
+        if (!intentionalCloseRef.current) {
+          reconnectTimerRef.current = setTimeout(connect, 1000);
         }
       };
+    }
+
+    connect();
+
+    return () => {
+      intentionalCloseRef.current = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [documentId]);
+
+  // ── execute(): send over the existing persistent socket ────────────
+  const execute = useCallback(
+    (language: string, code: string) => {
+      // Reset output state
+      setOutput("");
+      setStderrStr("");
+      setError(null);
+      setExecutionTime(null);
+      setExitCode(null);
+      setAiExplanation(null);
+      setSecurityAlert(null);
+      setAiResources(null);
+      setIsScanning(false);
+      setEasterEggTriggered(false);
+
+      const socket = wsRef.current;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        setIsRunning(true);
+        socket.send(JSON.stringify({ language, code }));
+      } else {
+        setError("Connection unavailable. Reconnecting\u2026");
+      }
     },
-    [documentId]
+    []
   );
 
   const clear = useCallback(() => {
@@ -211,12 +221,11 @@ export function useExecution(documentId: string): UseExecutionReturn {
 
   const explainWithAI = useCallback(async (language: string, code: string) => {
     if (!stderrStr.trim()) return;
-    
+
     setIsExplaining(true);
     setAiExplanation(null);
-    
+
     try {
-      // Import here to avoid cyclic dep or move to top
       const { explainError } = await import("@/lib/api");
       const result = await explainError({
         language,
@@ -231,14 +240,14 @@ export function useExecution(documentId: string): UseExecutionReturn {
     }
   }, [stderrStr]);
 
-  return { 
-    isRunning, 
-    output, 
+  return {
+    isRunning,
+    output,
     stderr: stderrStr,
-    error, 
-    executionTime, 
+    error,
+    executionTime,
     exitCode,
-    execute, 
+    execute,
     clear,
     aiExplanation,
     isExplaining,

@@ -207,3 +207,23 @@ export async function explainError(
         ...init,
     });
 }
+
+export type AiChatRequest = {
+  message: string;
+  code: string;
+};
+
+export type AiChatResponse = {
+  reply: string;
+};
+
+export async function sendAiChat(
+  data: AiChatRequest,
+  init?: RequestInit
+): Promise<AiChatResponse> {
+  return fetchJson<AiChatResponse>("/api/ai/chat", {
+    method: "POST",
+    body: JSON.stringify(data),
+    ...init,
+  });
+}

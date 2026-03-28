@@ -176,3 +176,43 @@ async def explain_error(language: str, code: str, stderr: str) -> dict:
         return _safe_error_fix(
             "Unable to analyze this error automatically. Please review the stderr output above."
         )
+        return "Unable to analyze this error automatically. Please review the stderr output above."
+
+
+# System prompt for AI chat assistant
+CHAT_SYSTEM_PROMPT = (
+    "You are a helpful coding assistant embedded in a collaborative code editor called iTECify. "
+    "The user may share code with you. Help them understand, debug, improve, or explain their code. "
+    "Be concise and practical. Use code examples when helpful."
+)
+
+
+async def chat(message: str, code: str) -> str:
+    """
+    Send a chat message (with optional code context) to the LLM.
+
+    Returns the AI's reply as a string, or a fallback message on failure.
+    """
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        return "AI service is not configured. Please set the OPENROUTER_API_KEY."
+
+    user_content = message
+    if code and code.strip():
+        user_content = f"{message}\n\nCurrent code:\n```\n{code}\n```"
+
+    try:
+        response = await client.chat.completions.create(
+            model="openai/gpt-4o",
+            temperature=0.7,
+            messages=[
+                {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+        )
+        content = response.choices[0].message.content
+        if content and content.strip():
+            return content.strip()
+        return "The AI returned an empty response. Please try again."
+    except Exception as exc:
+        logger.warning("AI chat failed (%s)", exc)
+        return "Unable to process your request right now. Please try again later."
