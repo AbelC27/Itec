@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Copy, Link2, PlugZap } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 const EXTENSION_ID = "itecify.itecify-vscode";
 const LOCAL_BRIDGE_BASE_URL = "http://127.0.0.1:32145";
@@ -84,19 +85,19 @@ export default function VsCodeLinkBanner({
   }
 
   return (
-    <div className="mb-4 flex flex-col gap-4 rounded-2xl border border-blue-900/50 bg-blue-950/30 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="mb-4 flex flex-col gap-4 rounded-2xl border border-border bg-secondary/30 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
       <div className="space-y-2">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-blue-200">
+        <div className="flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-foreground">
           <Link2 className="h-4 w-4" />
           VS Code Sync
         </div>
-        <p className="text-sm text-slate-100">
+        <p className="text-sm text-muted-foreground">
           This workspace is linked by document ID. Connect from here to open the iTECify VS Code
           extension, then use the explicit Push/Pull actions from VS Code instead of background
           syncing.
         </p>
-        <p className="text-xs text-slate-400">
-          Current document: <span className="font-mono text-slate-200">{documentId}</span>
+        <p className="text-xs text-muted-foreground">
+          Current document: <span className="font-mono text-foreground">{documentId}</span>
         </p>
         {connectStatus === "connected" && (
           <p className="text-xs text-emerald-300">
@@ -105,7 +106,7 @@ export default function VsCodeLinkBanner({
           </p>
         )}
         {connectStatus === "opening" && (
-          <p className="text-xs text-blue-200">
+          <p className="text-xs text-blue-400">
             No running local bridge was found, so the app is opening VS Code through the extension
             URI instead. If VS Code says the extension was not found, install the local extension
             from <span className="font-mono">vscode-extension</span> once, reload VS Code, and try again.
@@ -114,33 +115,29 @@ export default function VsCodeLinkBanner({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
+        <Button
           onClick={() => void connectToVsCode()}
           disabled={isConnecting}
-          className="inline-flex items-center gap-2 rounded-lg border border-blue-700/60 bg-blue-600 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white transition hover:bg-blue-500"
         >
           <PlugZap className="h-4 w-4" />
           {isConnecting ? "Connecting..." : "Connect VS Code"}
-        </button>
+        </Button>
 
-        <button
-          type="button"
+        <Button
+          variant="outline"
           onClick={() => void copyValue(documentId, "id")}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200 transition hover:border-slate-700 hover:bg-slate-800"
         >
           <Copy className="h-4 w-4" />
           {copied === "id" ? "Copied ID" : "Copy ID"}
-        </button>
+        </Button>
 
-        <button
-          type="button"
+        <Button
+          variant="outline"
           onClick={() => void copyValue(vscodeDeepLink, "link")}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200 transition hover:border-slate-700 hover:bg-slate-800"
         >
           <Copy className="h-4 w-4" />
           {copied === "link" ? "Copied URI" : "Copy VS Code URI"}
-        </button>
+        </Button>
       </div>
     </div>
   );

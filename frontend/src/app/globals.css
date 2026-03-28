@@ -1,195 +1,40 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap");
 @import "tailwindcss";
 
-:root {
-  --background: #ecf2fb;
-  --foreground: #101827;
-  --surface: #ffffff;
-  --border: #c8d2e8;
-  --text-secondary: #5e6b82;
-  --accent: #0f2f74;
-  --radius-card: 0.5rem;
-  --radius-input: 0.375rem;
-}
-
-.dark {
-  --background: #04102a;
-  --foreground: #f1f6ff;
-  --surface: #0d1f44;
-  --border: #355082;
-  --text-secondary: #a5b8df;
-  --accent: #e8c26f;
-}
-
-.aether-theme {
-  --aether-secondary-fixed: #d3e4f9;
-  --aether-on-error: #490106;
-  --aether-error-dim: #bb5551;
-  --aether-on-error-container: #ff9993;
-  --aether-outline: #347ab1;
-  --aether-surface-container-low: #001526;
-  --aether-secondary: #8fa0b3;
-  --aether-tertiary-container: #c3d9f5;
-  --aether-primary-fixed: #e2e2e2;
-  --aether-on-tertiary-fixed: #243a50;
-  --aether-on-primary: #3f4041;
-  --aether-surface-container: #001b2f;
-  --aether-error: #ee7d77;
-  --aether-surface-bright: #002e4c;
-  --aether-on-secondary-fixed: #314151;
-  --aether-error-container: #7f2927;
-  --aether-tertiary-fixed-dim: #b5cbe7;
-  --aether-surface-variant: #002842;
-  --aether-primary-dim: #b8b9b9;
-  --aether-surface-container-high: #002139;
-  --aether-primary-fixed-dim: #d4d4d4;
-  --aether-surface-container-highest: #002842;
-  --aether-secondary-dim: #8fa0b3;
-  --aether-on-background: #d3e8ff;
-  --aether-on-tertiary: #40556c;
-  --aether-secondary-fixed-dim: #c5d6eb;
-  --aether-inverse-on-surface: #43576a;
-  --aether-surface-container-lowest: #000000;
-  --aether-on-primary-container: #d0d0d0;
-  --aether-primary: #c6c6c7;
-  --aether-tertiary-dim: #b5cbe7;
-  --aether-secondary-container: #2d3d4d;
-  --aether-on-tertiary-container: #384d63;
-  --aether-surface-dim: #000f1e;
-  --aether-on-secondary: #102131;
-  --aether-on-tertiary-fixed-variant: #41566d;
-  --aether-on-surface-variant: #70b1eb;
-  --aether-on-primary-fixed-variant: #5a5c5c;
-  --aether-background: #000f1e;
-  --aether-inverse-surface: #f7f9ff;
-  --aether-on-surface: #d3e8ff;
-  --aether-on-secondary-fixed-variant: #4d5d6f;
-  --aether-on-secondary-container: #b0c1d5;
-  --aether-inverse-primary: #5e5f60;
-  --aether-outline-variant: #004b78;
-  --aether-on-primary-fixed: #3e4040;
-  --aether-primary-container: #454747;
-  --aether-tertiary-fixed: #c3d9f5;
-  --aether-surface-tint: #c6c6c7;
-  --aether-tertiary: #d5e7ff;
-  --aether-surface: #000f1e;
-  --aether-font-body: "Inter", sans-serif;
-  --aether-font-headline: "Manrope", sans-serif;
-  --aether-font-label: "Inter", sans-serif;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-surface: var(--surface);
-  --color-border: var(--border);
-  --color-text-secondary: var(--text-secondary);
-  --color-accent: var(--accent);
-  --color-secondary-fixed: var(--aether-secondary-fixed);
-  --color-on-error: var(--aether-on-error);
-  --color-error-dim: var(--aether-error-dim);
-  --color-on-error-container: var(--aether-on-error-container);
-  --color-outline: var(--aether-outline);
-  --color-surface-container-low: var(--aether-surface-container-low);
-  --color-secondary: var(--aether-secondary);
-  --color-tertiary-container: var(--aether-tertiary-container);
-  --color-primary-fixed: var(--aether-primary-fixed);
-  --color-on-tertiary-fixed: var(--aether-on-tertiary-fixed);
-  --color-on-primary: var(--aether-on-primary);
-  --color-surface-container: var(--aether-surface-container);
-  --color-error: var(--aether-error);
-  --color-surface-bright: var(--aether-surface-bright);
-  --color-on-secondary-fixed: var(--aether-on-secondary-fixed);
-  --color-error-container: var(--aether-error-container);
-  --color-tertiary-fixed-dim: var(--aether-tertiary-fixed-dim);
-  --color-surface-variant: var(--aether-surface-variant);
-  --color-primary-dim: var(--aether-primary-dim);
-  --color-surface-container-high: var(--aether-surface-container-high);
-  --color-primary-fixed-dim: var(--aether-primary-fixed-dim);
-  --color-surface-container-highest: var(--aether-surface-container-highest);
-  --color-secondary-dim: var(--aether-secondary-dim);
-  --color-on-background: var(--aether-on-background);
-  --color-on-tertiary: var(--aether-on-tertiary);
-  --color-secondary-fixed-dim: var(--aether-secondary-fixed-dim);
-  --color-inverse-on-surface: var(--aether-inverse-on-surface);
-  --color-surface-container-lowest: var(--aether-surface-container-lowest);
-  --color-on-primary-container: var(--aether-on-primary-container);
-  --color-primary: var(--aether-primary);
-  --color-tertiary-dim: var(--aether-tertiary-dim);
-  --color-secondary-container: var(--aether-secondary-container);
-  --color-on-tertiary-container: var(--aether-on-tertiary-container);
-  --color-surface-dim: var(--aether-surface-dim);
-  --color-on-secondary: var(--aether-on-secondary);
-  --color-on-tertiary-fixed-variant: var(--aether-on-tertiary-fixed-variant);
-  --color-on-surface-variant: var(--aether-on-surface-variant);
-  --color-on-primary-fixed-variant: var(--aether-on-primary-fixed-variant);
-  --color-inverse-surface: var(--aether-inverse-surface);
-  --color-on-surface: var(--aether-on-surface);
-  --color-on-secondary-fixed-variant: var(--aether-on-secondary-fixed-variant);
-  --color-on-secondary-container: var(--aether-on-secondary-container);
-  --color-inverse-primary: var(--aether-inverse-primary);
-  --color-outline-variant: var(--aether-outline-variant);
-  --color-on-primary-fixed: var(--aether-on-primary-fixed);
-  --color-primary-container: var(--aether-primary-container);
-  --color-tertiary-fixed: var(--aether-tertiary-fixed);
-  --color-surface-tint: var(--aether-surface-tint);
-  --color-tertiary: var(--aether-tertiary);
-  --color-surface: var(--aether-surface);
-  --font-headline: var(--aether-font-headline);
-  --font-body: var(--aether-font-body);
-  --font-label: var(--aether-font-label);
+  --color-background: #09090B;
+  --color-foreground: #fafafa;
+  --color-card: #09090B;
+  --color-card-foreground: #fafafa;
+  --color-popover: #09090B;
+  --color-popover-foreground: #fafafa;
+  --color-primary: #fafafa;
+  --color-primary-foreground: #18181B;
+  --color-secondary: #27272A;
+  --color-secondary-foreground: #fafafa;
+  --color-muted: #27272A;
+  --color-muted-foreground: #a1a1aa;
+  --color-accent: #27272A;
+  --color-accent-foreground: #fafafa;
+  --color-destructive: #7f1d1d;
+  --color-destructive-foreground: #fafafa;
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-input: #27272A;
+  --color-ring: #d4d4d8;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
   transition: background-color 180ms ease, color 180ms ease;
 }
 
-.font-manrope {
-  font-family: "Manrope", sans-serif;
-}
-
-.font-body {
-  font-family: "Inter", sans-serif;
-}
-
-.font-label {
-  font-family: "Inter", sans-serif;
-}
-
-.glass-panel {
-  background: rgba(45, 61, 77, 0.4);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-}
-
-.aetheric-glow {
-  box-shadow: 0 0 15px rgba(198, 198, 199, 0.15);
-}
-
-.material-symbols-outlined {
-  font-family: "Material Symbols Outlined";
-  font-weight: normal;
-  font-style: normal;
-  font-size: 20px;
-  line-height: 1;
-  letter-spacing: normal;
-  text-transform: none;
-  display: inline-block;
-  white-space: nowrap;
-  word-wrap: normal;
-  direction: ltr;
-  -webkit-font-smoothing: antialiased;
-}
-
-code,
-pre,
-kbd,
-samp {
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
+code, pre, kbd, samp {
+  font-family: var(--font-mono), ui-monospace, monospace;
 }

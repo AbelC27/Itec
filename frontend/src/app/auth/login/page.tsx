@@ -4,7 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import styles from "./login.module.css";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -40,134 +42,71 @@ export default function LoginPage() {
   };
 
   return (
-    <main className={styles.page}>
-      <div className={styles.ambient} aria-hidden="true">
-        <div className={styles.network}>
-          <svg viewBox="0 0 560 360" role="presentation">
-            <g fill="none" stroke="currentColor" strokeWidth="2" opacity="0.7">
-              <path d="M30 58h120" />
-              <path d="M150 58v86" />
-              <path d="M150 144h94" />
-              <path d="M244 144v70" />
-              <path d="M244 214h82" />
-              <path d="M326 214v58" />
-              <path d="M326 272h96" />
-              <path d="M90 196h80" />
-              <path d="M170 196v92" />
-              <path d="M170 288h96" />
-            </g>
-            <g fill="currentColor" opacity="0.25">
-              <circle cx="150" cy="58" r="6" />
-              <circle cx="244" cy="144" r="6" />
-              <circle cx="326" cy="214" r="6" />
-              <circle cx="170" cy="288" r="6" />
-            </g>
-            <g fill="none" stroke="currentColor" strokeWidth="2" opacity="0.4">
-              <rect x="20" y="42" width="80" height="32" rx="10" />
-              <rect x="20" y="180" width="90" height="32" rx="10" />
-              <rect x="210" y="128" width="72" height="32" rx="10" />
-              <rect x="298" y="256" width="78" height="32" rx="10" />
-              <rect x="410" y="258" width="90" height="32" rx="10" />
-            </g>
-          </svg>
-        </div>
+    <main className="relative min-h-screen bg-[#09090B] grid place-items-center p-6">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(39,39,42,0.5),_transparent_50%)]" />
 
-        <div className={styles.codeBlock}>
-          <pre>
-            {`async function FetchUser(id) {
-  const user = await db.users.findUnique({ id });
-  return user;
-}`}
-          </pre>
-        </div>
-      </div>
-
-      <section className={styles.panel}>
-        <header className={styles.header}>
-          <h1 className={styles.title}>Welcome back</h1>
-          <p className={styles.subtitle}>Please enter your details.</p>
+      <section className="animate-in fade-in-0 slide-in-from-bottom-4 duration-500 relative w-full max-w-md rounded-2xl border border-white/10 bg-[#09090B] p-8">
+        <header className="text-center mb-6">
+          <h1 className="text-2xl font-bold text-foreground">Welcome back</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Please enter your details.</p>
         </header>
 
-        <form onSubmit={handleSubmit} className={styles.form}>
-          <div className={styles.field}>
-            <label htmlFor="email" className={styles.label}>
-              E-mail
-            </label>
-            <input
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="email">E-mail</Label>
+            <Input
               id="email"
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className={styles.input}
               placeholder="Enter your e-mail"
             />
           </div>
 
-          <div className={styles.field}>
-            <label htmlFor="password" className={styles.label}>
-              Password
-            </label>
-            <input
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
               id="password"
               type="password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className={styles.input}
               placeholder="Enter your password"
             />
           </div>
 
-          <div className={styles.helperRow}>
-            <label className={styles.checkbox}>
-              <input type="checkbox" className={styles.checkboxInput} />
+          <div className="flex items-center justify-between text-sm">
+            <label className="inline-flex items-center gap-2 text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-white/20 bg-transparent accent-foreground"
+              />
               Remember me
             </label>
-            <a className={styles.forgotLink} href="#">
+            <a href="#" className="text-muted-foreground hover:text-foreground transition-colors">
               Forgot your password?
             </a>
           </div>
 
           {error && (
-            <p className={styles.error} role="alert">
+            <p className="text-sm text-destructive" role="alert">
               {error}
             </p>
           )}
 
-          <button type="submit" disabled={isLoading} className={styles.submitButton}>
+          <Button type="submit" disabled={isLoading} className="w-full">
             {isLoading ? "Logging in..." : "Log in"}
-          </button>
+          </Button>
         </form>
 
-        <p className={styles.footerText}>
+        <p className="mt-6 text-center text-sm text-muted-foreground">
           Don&apos;t have an account?{" "}
-          <Link href="/auth/signup" className={styles.registerLink}>
+          <Link href="/auth/signup" className="text-foreground font-medium hover:underline">
             Register here
           </Link>
         </p>
       </section>
-
-      <div className={styles.floatingPanel}>
-        <button type="button" className={styles.panelButton} aria-label="Maximize">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M7 17L17 7M9 7h8v8"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-        <button type="button" className={`${styles.panelButton} ${styles.searchButton}`} aria-label="Search">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" strokeWidth="2" />
-            <path d="M16 16l4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
     </main>
   );
 }

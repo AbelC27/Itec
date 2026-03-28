@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useAuth } from "@/components/providers/auth-provider";
+import { Button } from "@/components/ui/button";
 
 export default function Home() {
   const { user, isLoading } = useAuth();
@@ -12,7 +13,7 @@ export default function Home() {
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
           AI-Augmented Collaborative Sandbox
         </h1>
-        <p className="max-w-xl text-lg text-text-secondary">
+        <p className="max-w-xl text-lg text-muted-foreground">
           Build, collaborate, and experiment in real-time with AI-powered
           assistance.
         </p>
@@ -20,26 +21,23 @@ export default function Home() {
         {!isLoading && (
           <div className="flex gap-4 mt-4">
             {user ? (
-              <Link
-                href="/homepage"
-                className="inline-flex h-11 items-center justify-center rounded-[var(--radius-input)] bg-accent px-6 text-sm font-medium text-white transition-colors hover:bg-accent/90"
-              >
-                Go to Homepage
-              </Link>
+              <Button asChild size="lg">
+                <Link href="/homepage">
+                  Go to Homepage
+                </Link>
+              </Button>
             ) : (
               <>
-                <Link
-                  href="/auth/signup"
-                  className="inline-flex h-11 items-center justify-center rounded-[var(--radius-input)] bg-accent px-6 text-sm font-medium text-white transition-colors hover:bg-accent/90"
-                >
-                  Get Started
-                </Link>
-                <Link
-                  href="/auth/login"
-                  className="inline-flex h-11 items-center justify-center rounded-[var(--radius-input)] border border-border px-6 text-sm font-medium text-foreground transition-colors hover:bg-surface"
-                >
-                  Log In
-                </Link>
+                <Button asChild size="lg">
+                  <Link href="/auth/signup">
+                    Get Started
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="lg">
+                  <Link href="/auth/login">
+                    Log In
+                  </Link>
+                </Button>
               </>
             )}
           </div>

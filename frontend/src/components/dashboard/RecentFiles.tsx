@@ -6,6 +6,9 @@ import { FileClock, FileCode2, Loader2, AlertCircle, Trash2 } from "lucide-react
 import { getDocuments, deleteDocument } from "@/lib/api";
 import { useActiveDocument } from "@/components/providers/active-document-provider";
 import type { Document } from "@/types/database";
+import { Card, CardHeader, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 
 const LANGUAGE_COLORS: Record<string, string> = {
     python: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
@@ -77,96 +80,101 @@ export default function RecentFiles() {
     };
 
     return (
-        <section className="rounded-2xl border border-slate-900 bg-slate-950/70 p-6">
-            <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                    <FileClock className="h-5 w-5 text-blue-300" />
-                    <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">
-                        Recent Files &amp; Snippets
-                    </h2>
+        <Card className="border-white/10 bg-background">
+            <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                        <FileClock className="h-5 w-5 text-muted-foreground" />
+                        <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-foreground">
+                            Recent Files &amp; Snippets
+                        </h2>
+                    </div>
+                    <Button variant="ghost" size="sm" className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                        View Log
+                    </Button>
                 </div>
-                <button
-                    type="button"
-                    className="text-xs uppercase tracking-[0.2em] text-blue-200 transition hover:text-blue-100"
-                >
-                    View Log
-                </button>
-            </div>
+            </CardHeader>
 
-            <div className="mt-5 space-y-2">
-                {isLoading && (
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span className="uppercase tracking-[0.2em]">Loading documents…</span>
-                    </div>
-                )}
-
-                {error && (
-                    <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-                        <AlertCircle className="h-4 w-4 shrink-0" />
-                        <span>{error}</span>
-                    </div>
-                )}
-
-                {!isLoading && !error && documents.length === 0 && (
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                        No recent files yet.
-                    </p>
-                )}
-
-                {documents.map((doc) => {
-                    const langClass =
-                        LANGUAGE_COLORS[doc.language] ??
-                        "bg-slate-500/20 text-slate-300 border-slate-500/30";
-
-                    const openDocument = () => {
-                        setActiveDocumentId(doc.id);
-                        router.push("/workspace");
-                    };
-
-                    return (
-                        <div
-                            key={doc.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={openDocument}
-                            onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                    event.preventDefault();
-                                    openDocument();
-                                }
-                            }}
-                            className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition hover:border-slate-800 hover:bg-slate-900/60"
-                        >
-                            <FileCode2 className="h-4 w-4 shrink-0 text-slate-400" />
-                            <span className="flex-1 truncate text-sm text-slate-200">
-                                {doc.title}
-                            </span>
-                            <span
-                                className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${langClass}`}
-                            >
-                                {doc.language}
-                            </span>
-                            <span className="text-[10px] tabular-nums text-slate-500">
-                                {formatRelativeTime(doc.updated_at)}
-                            </span>
-                            <button
-                                type="button"
-                                onClick={(e) => handleDelete(e, doc.id)}
-                                disabled={deletingId === doc.id}
-                                className="ml-2 rounded p-1.5 text-slate-500 opacity-0 transition hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 disabled:opacity-50"
-                                title="Delete Document"
-                            >
-                                {deletingId === doc.id ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-red-400" />
-                                ) : (
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                )}
-                            </button>
+            <CardContent>
+                <div className="space-y-2">
+                    {isLoading && (
+                        <div className="space-y-3">
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-4 w-full" />
                         </div>
-                    );
-                })}
-            </div>
-        </section>
+                    )}
+
+                    {error && (
+                        <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive-foreground">
+                            <AlertCircle className="h-4 w-4 shrink-0" />
+                            <span>{error}</span>
+                        </div>
+                    )}
+
+                    {!isLoading && !error && documents.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-8 text-center">
+                            <FileCode2 className="h-8 w-8 text-muted-foreground mb-2" />
+                            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                No recent files yet
+                            </p>
+                        </div>
+                    )}
+
+                    {documents.map((doc) => {
+                        const langClass =
+                            LANGUAGE_COLORS[doc.language] ??
+                            "bg-slate-500/20 text-slate-300 border-slate-500/30";
+
+                        const openDocument = () => {
+                            setActiveDocumentId(doc.id);
+                            router.push("/workspace");
+                        };
+
+                        return (
+                            <div
+                                key={doc.id}
+                                role="button"
+                                tabIndex={0}
+                                onClick={openDocument}
+                                onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        openDocument();
+                                    }
+                                }}
+                                className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left hover:bg-accent transition-all duration-200"
+                            >
+                                <FileCode2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                <span className="flex-1 truncate text-sm text-foreground">
+                                    {doc.title}
+                                </span>
+                                <span
+                                    className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${langClass}`}
+                                >
+                                    {doc.language}
+                                </span>
+                                <span className="text-[10px] tabular-nums text-muted-foreground">
+                                    {formatRelativeTime(doc.updated_at)}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={(e) => handleDelete(e, doc.id)}
+                                    disabled={deletingId === doc.id}
+                                    className="ml-2 rounded p-1.5 text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 disabled:opacity-50"
+                                    title="Delete Document"
+                                >
+                                    {deletingId === doc.id ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin text-destructive" />
+                                    ) : (
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                    )}
+                                </button>
+                            </div>
+                        );
+                    })}
+                </div>
+            </CardContent>
+        </Card>
     );
 }
