@@ -358,7 +358,13 @@ function EditorWithYjs({
 
     yText.observe(handleYTextChange);
     providerInstance.on("sync", handleProviderSync);
-    ensureInitialContent();
+    
+    // Only seed initial content if the provider is already fully synced
+    // with the central server (e.g., reused from module cache).
+    // Otherwise, we wait for the "sync" event handler to do it.
+    if (providerInstance.synced) {
+      ensureInitialContent();
+    }
 
     return () => {
       yText.unobserve(handleYTextChange);
