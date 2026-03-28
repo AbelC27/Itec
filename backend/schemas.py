@@ -45,3 +45,28 @@ class ExecutionRecord:
     stdout: str
     stderr: str
     execution_time: float
+
+# --- Document Management (Phase 6) ---
+
+from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel
+
+
+class DocumentCreate(BaseModel):
+    """Request body for creating a new document."""
+
+    title: str
+    language: str
+
+
+class DocumentResponse(BaseModel):
+    """Response model for a document."""
+
+    id: UUID
+    title: str
+    language: str
+    owner_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
