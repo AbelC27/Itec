@@ -36,11 +36,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
+const node_http_1 = require("node:http");
 const executionHandler_1 = require("./executionHandler");
 const DEFAULT_BACKEND_BASE_URL = "http://localhost:8000";
 const DOCUMENT_ID_KEY = "itecify.documentId";
 const CONNECTION_KEY = "itecify.connection";
 const PUSH_DEBOUNCE_MS = 200;
+const LOCAL_BRIDGE_HOST = "127.0.0.1";
+const LOCAL_BRIDGE_PORT = 32145;
 let isExecuting = false;
 let didWarnMissingDocumentId = false;
 let didWarnSyncFailure = false;
@@ -59,10 +62,12 @@ function getConfiguredBackendBaseUrl() {
     return normalizeBaseUrl(configured);
 }
 function getStoredConnection(context) {
-    return context.globalState.get(CONNECTION_KEY);
+    return (context.workspaceState.get(CONNECTION_KEY) ??
+        context.globalState.get(CONNECTION_KEY));
 }
 function getStoredDocumentId(context) {
     return (getStoredConnection(context)?.documentId ??
+        context.workspaceState.get(DOCUMENT_ID_KEY) ??
         context.globalState.get(DOCUMENT_ID_KEY));
 }
 function getBackendBaseUrl(context) {
@@ -77,10 +82,16 @@ async function setStoredConnection(context, connection) {
             : undefined,
         connectedAt: connection.connectedAt ?? new Date().toISOString(),
     };
-    await context.globalState.update(CONNECTION_KEY, normalized);
-    await context.globalState.update(DOCUMENT_ID_KEY, normalized.documentId);
+    await context.workspaceState.update(CONNECTION_KEY, normalized);
+    await context.workspaceState.update(DOCUMENT_ID_KEY, normalized.documentId);
+    // Clear legacy global values to prevent cross-workspace bleed.
+    await context.globalState.update(CONNECTION_KEY, undefined);
+    await context.globalState.update(DOCUMENT_ID_KEY, undefined);
 }
 async function clearStoredConnection(context) {
+    await context.workspaceState.update(CONNECTION_KEY, undefined);
+    await context.workspaceState.update(DOCUMENT_ID_KEY, undefined);
+    // Also clear legacy global values in case they still exist.
     await context.globalState.update(CONNECTION_KEY, undefined);
     await context.globalState.update(DOCUMENT_ID_KEY, undefined);
 }
@@ -90,11 +101,14 @@ async function setStoredDocumentId(context, documentId) {
         await setStoredConnection(context, { ...existing, documentId });
         return;
     }
-    await context.globalState.update(DOCUMENT_ID_KEY, documentId);
+    await context.workspaceState.update(DOCUMENT_ID_KEY, documentId);
+    // Clear legacy global value to avoid affecting other workspaces.
+    await context.globalState.update(DOCUMENT_ID_KEY, undefined);
 }
 function updateConnectionStatusBar(statusBar, context) {
     const connection = getStoredConnection(context);
-    const legacyDocumentId = context.globalState.get(DOCUMENT_ID_KEY);
+    const legacyDocumentId = context.workspaceState.get(DOCUMENT_ID_KEY) ??
+        context.globalState.get(DOCUMENT_ID_KEY);
     if (!connection) {
         if (legacyDocumentId) {
             statusBar.text = `$(plug) ${legacyDocumentId.slice(0, 8)}`;
@@ -116,6 +130,22 @@ function updateConnectionStatusBar(statusBar, context) {
         `Backend: ${getBackendBaseUrl(context)}`,
         "Enter pushes to cloud. Shift+Enter pulls from cloud.",
     ].join("\n");
+}
+async function linkWorkspaceConnection(context, statusBar, connection, source) {
+    await setStoredConnection(context, connection);
+    didWarnMissingDocumentId = false;
+    didWarnSyncFailure = false;
+    updateConnectionStatusBar(statusBar, context);
+    const linkedConnection = getStoredConnection(context);
+    const connectionLabel = linkedConnection?.title ||
+        linkedConnection?.documentId ||
+        connection.documentId.trim();
+    const sourceLabel = source === "browser"
+        ? "browser"
+        : source === "uri"
+            ? "VS Code link"
+            : "manual input";
+    vscode.window.showInformationMessage(`iTECify: Linked to ${connectionLabel} from ${sourceLabel}. Enter now pushes and Shift+Enter pulls.`);
 }
 async function promptForDocumentId(context, prompt) {
     const documentId = await vscode.window.showInputBox({
@@ -168,17 +198,104 @@ async function connectWorkspace(context, statusBar, uri) {
         }
         return;
     }
-    await setStoredConnection(context, {
+    await linkWorkspaceConnection(context, statusBar, {
         documentId: documentId.trim(),
         title,
         backendBaseUrl,
+    }, uri ? "uri" : "manual");
+}
+function writeBridgeJson(response, statusCode, payload) {
+    response.writeHead(statusCode, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
     });
-    didWarnMissingDocumentId = false;
-    didWarnSyncFailure = false;
-    updateConnectionStatusBar(statusBar, context);
-    const linkedConnection = getStoredConnection(context);
-    const connectionLabel = linkedConnection?.title || linkedConnection?.documentId || documentId.trim();
-    vscode.window.showInformationMessage(`iTECify: Linked to ${connectionLabel}. Enter now pushes and Shift+Enter pulls.`);
+    response.end(JSON.stringify(payload));
+}
+async function readRequestBody(request) {
+    return await new Promise((resolve, reject) => {
+        const chunks = [];
+        request.on("data", (chunk) => {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        request.on("end", () => {
+            resolve(Buffer.concat(chunks).toString("utf8"));
+        });
+        request.on("error", reject);
+    });
+}
+function startLocalBridge(context, statusBar, outputChannel) {
+    const server = (0, node_http_1.createServer)((request, response) => {
+        void (async () => {
+            const requestUrl = new URL(request.url || "/", `http://${LOCAL_BRIDGE_HOST}:${LOCAL_BRIDGE_PORT}`);
+            if (request.method === "OPTIONS") {
+                response.writeHead(204, {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type",
+                    "Cache-Control": "no-store",
+                });
+                response.end();
+                return;
+            }
+            if (request.method === "GET" && requestUrl.pathname === "/health") {
+                writeBridgeJson(response, 200, {
+                    ok: true,
+                    bridge: "itecify",
+                    port: LOCAL_BRIDGE_PORT,
+                });
+                return;
+            }
+            if (request.method === "POST" && requestUrl.pathname === "/connect") {
+                try {
+                    const rawBody = await readRequestBody(request);
+                    const payload = JSON.parse(rawBody || "{}");
+                    const documentId = payload.documentId?.trim();
+                    if (!documentId) {
+                        writeBridgeJson(response, 400, {
+                            ok: false,
+                            error: "documentId is required",
+                        });
+                        return;
+                    }
+                    await linkWorkspaceConnection(context, statusBar, {
+                        documentId,
+                        title: payload.title,
+                        backendBaseUrl: payload.backendBaseUrl,
+                    }, "browser");
+                    writeBridgeJson(response, 200, {
+                        ok: true,
+                        documentId,
+                    });
+                }
+                catch (error) {
+                    const message = error instanceof Error ? error.message : "Failed to process bridge request";
+                    writeBridgeJson(response, 500, {
+                        ok: false,
+                        error: message,
+                    });
+                }
+                return;
+            }
+            writeBridgeJson(response, 404, {
+                ok: false,
+                error: "Not found",
+            });
+        })();
+    });
+    server.on("listening", () => {
+        outputChannel.appendLine(`[iTECify] Local bridge listening on http://${LOCAL_BRIDGE_HOST}:${LOCAL_BRIDGE_PORT}`);
+    });
+    server.on("error", (error) => {
+        const message = error instanceof Error ? error.message : "Unknown local bridge error";
+        outputChannel.appendLine(`[iTECify] Local bridge error: ${message}`);
+    });
+    server.listen(LOCAL_BRIDGE_PORT, LOCAL_BRIDGE_HOST);
+    return new vscode.Disposable(() => {
+        server.close();
+    });
 }
 async function runCloudExecution(context, outputChannel) {
     if (isExecuting) {
@@ -409,6 +526,7 @@ function activate(context) {
     const deleteBranchDisposable = vscode.commands.registerCommand("itecify.deleteBranch", () => deleteBranch(context, connectionStatusBar));
     const uriHandler = new ItecifyUriHandler(context, connectionStatusBar);
     const uriDisposable = vscode.window.registerUriHandler(uriHandler);
+    const localBridgeDisposable = startLocalBridge(context, connectionStatusBar, outputChannel);
     const changeDisposable = vscode.workspace.onDidChangeTextDocument((event) => {
         if (isApplyingPull || !isEnterChange(event)) {
             return;
@@ -425,6 +543,6 @@ function activate(context) {
     newBranchStatusBar.command = "itecify.createBranch";
     newBranchStatusBar.tooltip = "iTECify: Create a new branch";
     newBranchStatusBar.show();
-    context.subscriptions.push(runDisposable, pullDisposable, connectDisposable, createBranchDisposable, deleteBranchDisposable, uriDisposable, changeDisposable, connectionStatusBar, newBranchStatusBar, outputChannel);
+    context.subscriptions.push(runDisposable, pullDisposable, connectDisposable, createBranchDisposable, deleteBranchDisposable, uriDisposable, localBridgeDisposable, changeDisposable, connectionStatusBar, newBranchStatusBar, outputChannel);
 }
 function deactivate() { }

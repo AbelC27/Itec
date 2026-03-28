@@ -1,5 +1,6 @@
 src/
-node_modules/
+node_modules/**
+!node_modules/ws/**
 tsconfig.json
 .vscode/
 .gitignore

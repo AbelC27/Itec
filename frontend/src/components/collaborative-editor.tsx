@@ -7,13 +7,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useYjsSupabase } from "@/hooks/useYjsSupabase";
 import { useExecution } from "@/hooks/useExecution";
 import { useHistory } from "@/hooks/useHistory";
-import {
-  getWsBaseUrl,
-  sendAiChat,
-  ApiError,
-  pullDocumentContent,
-  pushDocumentContent,
-} from "../lib/api";
+import { sendAiChat, ApiError, pushDocumentContent } from "../lib/api";
 import {getChatSessions, createChatSession, deleteChatSession, getChatMessages, saveChatMessage } from "../lib/api";
 import type { AiChatSession } from "../lib/api";
 import type * as monaco from "monaco-editor";
@@ -47,10 +41,6 @@ interface CollaborativeEditorProps {
   language?: string;
   initialContent?: string;
 }
-
-type WsMessage =
-  | { type: "code_update"; code: string }
-  | { type: "terminal_stream"; data: string };
 
 type ChatMessage = {
   id: string;
@@ -101,9 +91,8 @@ function EditorWithYjs({
   const lastCloudContentRef = useRef(initialContent);
   const isApplyingCloudContentRef = useRef(false);
   const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
   const [code, setCode] = useState("");
-  const [terminalLines, setTerminalLines] = useState<string[]>([]);
+  const [terminalLines] = useState<string[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -309,84 +298,15 @@ function EditorWithYjs({
     provider.on("sync", handleProviderSync);
     ensureInitialContent();
 
-    const pollHandle = window.setInterval(() => {
-      void pullDocumentContent(documentId)
-        .then((response) => {
-          const remoteContent = response.content ?? "";
-          if (remoteContent === lastCloudContentRef.current && remoteContent === yText.toString()) {
-            return;
-          }
-
-          if (remoteContent !== yText.toString()) {
-            applyCloudContent(remoteContent);
-          } else {
-            lastCloudContentRef.current = remoteContent;
-          }
-        })
-        .catch(() => {
-          // Ignore transient fetch errors; local editing should continue.
-        });
-    }, 2500);
-
     return () => {
       yText.unobserve(handleYTextChange);
       provider.off("sync", handleProviderSync);
-      window.clearInterval(pollHandle);
       if (cloudPersistTimeoutRef.current) {
         window.clearTimeout(cloudPersistTimeoutRef.current);
         cloudPersistTimeoutRef.current = null;
       }
     };
   }, [documentId, initialContent, yjsState]);
-
-  useEffect(() => {
-    let socket: WebSocket | null = null;
-
-    try {
-      const baseUrl = getWsBaseUrl();
-      const wsUrl = `${baseUrl}/sessions/${documentId}`;
-      socket = new WebSocket(wsUrl);
-      wsRef.current = socket;
-    } catch {
-      return () => undefined;
-    }
-
-    socket.onmessage = (event) => {
-      let parsed: WsMessage | null = null;
-      try {
-        parsed = JSON.parse(event.data) as WsMessage;
-      } catch {
-        parsed = null;
-      }
-
-      if (!parsed || typeof parsed !== "object") {
-        return;
-      }
-
-      if (parsed.type === "code_update" && typeof parsed.code === "string") {
-        setCode(parsed.code);
-      }
-
-      if (parsed.type === "terminal_stream" && typeof parsed.data === "string") {
-        setTerminalLines((prev) => [...prev, parsed.data]);
-      }
-    };
-
-    socket.onclose = () => {
-      if (wsRef.current === socket) {
-        wsRef.current = null;
-      }
-    };
-
-    return () => {
-      if (socket) {
-        socket.close();
-      }
-      if (wsRef.current === socket) {
-        wsRef.current = null;
-      }
-    };
-  }, [documentId]);
 
   const handleEditorMount: OnMount = useCallback((editorInstance) => {
     setEditor(editorInstance);
@@ -398,11 +318,6 @@ function EditorWithYjs({
         return;
       }
       setCode(newCode);
-      const socket = wsRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      socket.send(JSON.stringify({ type: "code_update", code: newCode }));
     },
     [code]
   );

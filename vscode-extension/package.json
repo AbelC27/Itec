@@ -5,11 +5,15 @@
   "version": "0.1.0",
   "publisher": "itecify",
   "activationEvents": [
+    "onStartupFinished",
     "onUri"
   ],
   "engines": {
     "vscode": "^1.85.0"
   },
+  "extensionKind": [
+    "ui"
+  ],
   "categories": [
     "Other"
   ],
@@ -70,7 +74,8 @@
     ]
   },
   "scripts": {
-    "compile": "tsc -p ./"
+    "compile": "tsc -p ./",
+    "install-local": "powershell -ExecutionPolicy Bypass -File .\\scripts\\install-local.ps1"
   },
   "dependencies": {
     "ws": "^8.18.0"
