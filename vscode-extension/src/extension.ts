@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { executeCode, LANGUAGE_MAP } from "./executionHandler";
 
 let isExecuting = false;
+let lastDocumentId = "";
 
 function detectLanguage(editor: vscode.TextEditor): string | undefined {
   return LANGUAGE_MAP[editor.document.languageId];
@@ -37,16 +38,28 @@ async function runCloudExecution(
     return;
   }
 
+  const documentId = await vscode.window.showInputBox({
+    prompt: "Enter the iTECify Document ID",
+    placeHolder: "e.g. abc123-def456",
+    value: lastDocumentId,
+  });
+
+  if (!documentId) {
+    return;
+  }
+
+  lastDocumentId = documentId;
+
   outputChannel.clear();
   outputChannel.show(true);
-  outputChannel.appendLine(`[iTECify] Running ${language} code in cloud...`);
+  outputChannel.appendLine(`[iTECify] Running ${language} code in cloud (document: ${documentId})...`);
 
   isExecuting = true;
   try {
     await executeCode({
       language,
       code,
-      documentId: "vscode-local-run",
+      documentId,
       outputChannel,
     });
   } finally {

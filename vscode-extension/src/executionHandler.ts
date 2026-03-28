@@ -6,7 +6,6 @@ import WebSocket from "ws";
 export interface ExecutionPayload {
   language: "python" | "javascript";
   code: string;
-  document_id: string;
 }
 
 export type WsMessage =
@@ -37,14 +36,13 @@ export function executeCode(options: ExecutionOptions): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     let settled = false;
 
-    const ws = new WebSocket("ws://localhost:8000/ws/execute");
+    const ws = new WebSocket(`ws://localhost:8000/ws/execute/${documentId}`);
 
     ws.on("open", () => {
       outputChannel.appendLine("[iTECify] Connected. Sending code...");
       const payload: ExecutionPayload = {
         language: language as "python" | "javascript",
         code,
-        document_id: documentId,
       };
       ws.send(JSON.stringify(payload));
     });
