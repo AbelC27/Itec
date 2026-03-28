@@ -30,7 +30,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/dashboard");
+      router.push("/homepage");
       router.refresh();
     } catch {
       setError("Something went wrong. Please try again.");

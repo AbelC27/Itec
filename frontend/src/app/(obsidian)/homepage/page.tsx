@@ -40,7 +40,7 @@ export default function ObsidianHomePage() {
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm text-slate-400">
                     Track active collaboration, recent edits, and peer availability in
-                    your Obsidian IDE workspace.
+                    your iTECity workspace.
                 </p>
             </header>
 

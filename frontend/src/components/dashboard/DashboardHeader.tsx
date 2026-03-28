@@ -1,7 +1,7 @@
 import { Plus, PlugZap } from "lucide-react";
 
 type DashboardHeaderProps = {
-    userName: string;
+    userName?: string;
     extensionConnected: boolean;
 };
 
@@ -9,6 +9,7 @@ export default function DashboardHeader({
     userName,
     extensionConnected,
 }: DashboardHeaderProps) {
+    const displayName = userName ?? "there";
     const statusLabel = extensionConnected ? "Connected" : "Offline";
     const statusDotClass = extensionConnected
         ? "bg-emerald-400"
@@ -25,8 +26,7 @@ export default function DashboardHeader({
                         Workspace Overview
                     </h1>
                     <p className="max-w-2xl text-sm text-slate-400">
-                        Welcome back, {userName}. You have 3 active collaborative sessions and
-                        1 pending peer review.
+                        Welcome back, {displayName}.
                     </p>
                     <div className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/70 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-slate-300">
                         <PlugZap className="h-4 w-4 text-blue-300" />

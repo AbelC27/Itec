@@ -21,10 +21,10 @@ export default function Home() {
           <div className="flex gap-4 mt-4">
             {user ? (
               <Link
-                href="/dashboard"
+                href="/homepage"
                 className="inline-flex h-11 items-center justify-center rounded-[var(--radius-input)] bg-accent px-6 text-sm font-medium text-white transition-colors hover:bg-accent/90"
               >
-                Go to Dashboard
+                Go to Homepage
               </Link>
             ) : (
               <>

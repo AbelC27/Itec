@@ -36,7 +36,7 @@ export default function SignupPage() {
         return;
       }
 
-      router.push("/dashboard");
+      router.push("/homepage");
       router.refresh();
     } catch {
       setError("Something went wrong. Please try again.");
@@ -91,7 +91,7 @@ export default function SignupPage() {
       <section className={styles.panel}>
         <header className={styles.header}>
           <h1 className={styles.title}>Create account</h1>
-          <p className={styles.subtitle}>Start building with iTECify.</p>
+          <p className={styles.subtitle}>Start building with iTECity.</p>
         </header>
 
         <form onSubmit={handleSubmit} className={styles.form}>

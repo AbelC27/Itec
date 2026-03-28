@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "iTECify",
+  title: "iTECity",
   description: "AI-Augmented Collaborative Sandbox",
 };
 

@@ -1,74 +1,98 @@
-import { Bot, MessageSquare, Sparkles } from "lucide-react";
+"use client";
 
-type Suggestion = {
-    id: string;
-    title: string;
-    description: string;
-};
+import { Mail, Palette, Shield, User } from "lucide-react";
+import { useAuth } from "@/components/providers/auth-provider";
+import { useProfile } from "@/hooks/useProfile";
 
-const suggestions: Suggestion[] = [
-    {
-        id: "s-1",
-        title: "Summarize the latest commits",
-        description: "Generate a changelog for the last 24 hours.",
-    },
-    {
-        id: "s-2",
-        title: "Review the checksum fix",
-        description: "Analyze T-14 changes for regressions.",
-    },
-    {
-        id: "s-3",
-        title: "Create a pairing brief",
-        description: "Outline what peers should know before joining.",
-    },
-];
+export default function ProfilePage() {
+    const { user } = useAuth();
+    const { profile, isLoading } = useProfile();
+    const displayName = profile?.username ?? user?.email ?? "Unknown";
+    const avatarInitial = displayName[0]?.toUpperCase() ?? "?";
+    const avatarColor = profile?.avatar_color_hex ?? "#0f172a";
 
-export default function AssistantPage() {
     return (
         <section className="space-y-6">
             <header className="rounded-2xl border border-slate-900 bg-slate-950/80 p-6">
                 <p className="text-xs uppercase tracking-[0.35em] text-slate-500">
-                    AI Assistant
+                    Profile
                 </p>
                 <h1 className="mt-3 text-2xl font-semibold text-slate-100">
-                    Assistant Workspace
+                    Account Overview
                 </h1>
                 <p className="mt-2 text-sm text-slate-400">
-                    Curate prompts, capture insights, and launch guided reviews for your team.
+                    Manage your profile details and account settings.
                 </p>
             </header>
 
             <section className="rounded-2xl border border-slate-900 bg-slate-950/80 p-6">
                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-400">
-                    <Sparkles className="h-4 w-4 text-blue-300" />
-                    Suggested Prompts
+                    <User className="h-4 w-4 text-blue-300" />
+                    Profile Details
                 </div>
-                <div className="mt-4 space-y-3">
-                    {suggestions.map((item) => (
-                        <div
-                            key={item.id}
-                            className="rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3"
-                        >
-                            <p className="text-sm font-semibold text-slate-100">
-                                {item.title}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-400">
-                                {item.description}
-                            </p>
+                <div className="mt-4">
+                    {isLoading ? (
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                            Loading profile...
+                        </p>
+                    ) : profile || user ? (
+                        <div className="grid gap-4 md:grid-cols-[140px_minmax(0,1fr)]">
+                            <div
+                                className="flex h-20 w-20 items-center justify-center rounded-2xl border border-slate-800 text-2xl font-semibold text-slate-100"
+                                style={{ backgroundColor: avatarColor }}
+                                aria-label="Profile avatar"
+                            >
+                                {avatarInitial}
+                            </div>
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-400">
+                                    <User className="h-3.5 w-3.5" />
+                                    <span>Username</span>
+                                </div>
+                                <p className="text-sm text-slate-100">
+                                    {profile?.username ?? "Not set"}
+                                </p>
+                                <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-400">
+                                    <Mail className="h-3.5 w-3.5" />
+                                    <span>Email</span>
+                                </div>
+                                <p className="text-sm text-slate-100">
+                                    {user?.email ?? "Not available"}
+                                </p>
+                            </div>
                         </div>
-                    ))}
+                    ) : (
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                            No profile data yet.
+                        </p>
+                    )}
                 </div>
             </section>
 
             <section className="rounded-2xl border border-slate-900 bg-slate-950/80 p-6">
                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-400">
-                    <Bot className="h-4 w-4 text-blue-300" />
-                    Start a Session
+                    <Shield className="h-4 w-4 text-blue-300" />
+                    Account Details
                 </div>
-                <div className="mt-4 flex items-center gap-3 rounded-full border border-slate-800 bg-slate-900/60 px-4 py-2 text-xs text-slate-400">
-                    <MessageSquare className="h-4 w-4" />
-                    Ask the assistant to prepare a review brief...
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                            <Shield className="h-3.5 w-3.5" />
+                            User ID
+                        </div>
+                        <p className="mt-2 text-sm text-slate-100">
+                            {profile?.id ?? user?.id ?? "Not available"}
+                        </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-slate-500">
+                            <Palette className="h-3.5 w-3.5" />
+                            Avatar Color
+                        </div>
+                        <p className="mt-2 text-sm text-slate-100">
+                            {profile?.avatar_color_hex ?? "Not set"}
+                        </p>
+                    </div>
                 </div>
             </section>
         </section>

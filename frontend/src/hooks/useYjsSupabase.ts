@@ -23,7 +23,7 @@ export function useYjsSupabase(
     const yDoc = new Y.Doc();
     const provider = new WebsocketProvider(
       "ws://localhost:4444",
-      `itecify-${documentId}`,
+      `itecity-${documentId}`,
       yDoc,
       { connect: true }
     );

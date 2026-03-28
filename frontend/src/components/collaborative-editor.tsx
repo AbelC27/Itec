@@ -1,19 +1,34 @@
 "use client";
 
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useCallback, useState, type KeyboardEvent } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { MonacoBinding } from "y-monaco";
 import { useProfile } from "@/hooks/useProfile";
 import { useYjsSupabase } from "@/hooks/useYjsSupabase";
+import { useExecution } from "@/hooks/useExecution";
+import { getWsBaseUrl } from "../lib/api";
 import type * as monaco from "monaco-editor";
 import styles from "./collaborative-editor.module.css";
 
 interface CollaborativeEditorProps {
   documentId: string;
+  language?: string;
 }
+
+type WsMessage =
+  | { type: "code_update"; code: string }
+  | { type: "terminal_stream"; data: string };
+
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: number;
+};
 
 export default function CollaborativeEditor({
   documentId,
+  language = "python",
 }: CollaborativeEditorProps) {
   const { profile, isLoading } = useProfile();
 
@@ -25,19 +40,29 @@ export default function CollaborativeEditor({
     );
   }
 
-  return <EditorWithYjs documentId={documentId} profile={profile} />;
+  return <EditorWithYjs documentId={documentId} profile={profile} language={language} />;
 }
 
 function EditorWithYjs({
   documentId,
   profile,
+  language,
 }: {
   documentId: string;
   profile: { id: string; username: string; avatar_color_hex: string };
+  language: string;
 }) {
   const yjsState = useYjsSupabase(documentId, profile);
   const bindingRef = useRef<MonacoBinding | null>(null);
   const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const [code, setCode] = useState("");
+  const [terminalLines, setTerminalLines] = useState<string[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+
+  // Execution hook
+  const execution = useExecution(documentId);
 
   // Create binding when BOTH editor and yjsState are ready
   // Recreate when either changes
@@ -62,15 +87,136 @@ function EditorWithYjs({
     };
   }, [yjsState, editor]);
 
+  useEffect(() => {
+    let socket: WebSocket | null = null;
+
+    try {
+      const baseUrl = getWsBaseUrl();
+      const wsUrl = `${baseUrl}/sessions/${documentId}`;
+      socket = new WebSocket(wsUrl);
+      wsRef.current = socket;
+    } catch {
+      return () => undefined;
+    }
+
+    socket.onmessage = (event) => {
+      let parsed: WsMessage | null = null;
+      try {
+        parsed = JSON.parse(event.data) as WsMessage;
+      } catch {
+        parsed = null;
+      }
+
+      if (!parsed || typeof parsed !== "object") {
+        return;
+      }
+
+      if (parsed.type === "code_update" && typeof parsed.code === "string") {
+        setCode(parsed.code);
+      }
+
+      if (parsed.type === "terminal_stream" && typeof parsed.data === "string") {
+        setTerminalLines((prev) => [...prev, parsed.data]);
+      }
+    };
+
+    socket.onclose = () => {
+      if (wsRef.current === socket) {
+        wsRef.current = null;
+      }
+    };
+
+    return () => {
+      if (socket) {
+        socket.close();
+      }
+      if (wsRef.current === socket) {
+        wsRef.current = null;
+      }
+    };
+  }, [documentId]);
+
   const handleEditorMount: OnMount = useCallback((editorInstance) => {
     setEditor(editorInstance);
   }, []);
 
+  const handleCodeChange = useCallback(
+    (newCode: string) => {
+      if (newCode === code) {
+        return;
+      }
+      setCode(newCode);
+      const socket = wsRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      socket.send(JSON.stringify({ type: "code_update", code: newCode }));
+    },
+    [code]
+  );
+
+  const handleMonacoChange = useCallback(
+    (value?: string) => {
+      if (typeof value !== "string") {
+        return;
+      }
+      handleCodeChange(value);
+    },
+    [handleCodeChange]
+  );
+
+  const handleRunCode = useCallback(() => {
+    const currentCode = editor?.getValue() ?? code;
+    if (!currentCode.trim()) return;
+    execution.execute(language, currentCode);
+  }, [editor, code, language, execution]);
+
+  const handleSendChat = useCallback(() => {
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+
+    const now = Date.now();
+    const userMessage: ChatMessage = {
+      id: typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${now}-user`,
+      role: "user",
+      content: trimmed,
+      createdAt: now,
+    };
+
+    const assistantMessage: ChatMessage = {
+      id: typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${now}-assistant`,
+      role: "assistant",
+      content: "AI chat is not connected yet. Hook this up to your backend to respond.",
+      createdAt: now + 1,
+    };
+
+    setChatMessages((prev) => [...prev, userMessage, assistantMessage]);
+    setChatInput("");
+  }, [chatInput]);
+
+  const handleChatKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        handleSendChat();
+      }
+    },
+    [handleSendChat]
+  );
+
   const connectionText = !yjsState
     ? "Initializing..."
     : yjsState.isConnected
-      ? `Connected — Room: itecify-${documentId}`
+      ? `Connected — Room: itecity-${documentId}`
       : "Disconnected — waiting for server on ws://localhost:4444";
+
+  // Determine terminal content: execution output takes priority when running/has output
+  const hasExecutionOutput = execution.output || execution.error;
+  const showExecutionOutput = execution.isRunning || hasExecutionOutput;
 
   return (
     <div className={styles.workspace}>
@@ -85,10 +231,36 @@ function EditorWithYjs({
             <span>EST. COST:</span>
             <strong>0.00042 ARCH</strong>
           </div>
+          {execution.executionTime !== null && (
+            <div className={styles.bannerMetric}>
+              <span>EXEC TIME:</span>
+              <strong className={styles.secondaryText}>
+                {execution.executionTime.toFixed(2)}s
+              </strong>
+            </div>
+          )}
           <div className={styles.bannerMetric}>
             <span>LATENCY:</span>
             <strong className={styles.secondaryText}>~14ms</strong>
           </div>
+          <button
+            type="button"
+            onClick={handleRunCode}
+            disabled={execution.isRunning}
+            className={styles.deployButton}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              opacity: execution.isRunning ? 0.6 : 1,
+              cursor: execution.isRunning ? "not-allowed" : "pointer",
+            }}
+          >
+            <span className={styles.icon} style={{ fontSize: "16px" }}>
+              {execution.isRunning ? "hourglass_top" : "play_arrow"}
+            </span>
+            {execution.isRunning ? "Running…" : "Run"}
+          </button>
           <button type="button" className={styles.navButton}>
             <span className={styles.icon}>close</span>
           </button>
@@ -130,7 +302,7 @@ function EditorWithYjs({
 
       <header className={styles.topBar}>
         <div className={styles.topBarLeft}>
-          <div className={styles.topBarBrand}>ARCHITECT_IDE</div>
+          <div className={styles.topBarBrand}>iTECity</div>
           <nav className={styles.topBarLinks}>
             <a className="active" href="#">
               Files
@@ -166,23 +338,17 @@ function EditorWithYjs({
             {connectionText}
           </div>
           <div className={styles.tabBar}>
-            <div className={`${styles.tab} ${styles.tabActive}`}>
-              <span className={styles.icon}>javascript</span>
-              <span>neural_net.js</span>
-              <span className={styles.icon}>close</span>
-            </div>
-            <div className={styles.tab}>
-              <span className={styles.icon}>css</span>
-              <span>styles.aether</span>
-              <span className={styles.icon}>close</span>
-            </div>
+            <span className={styles.tab}>
+              {language.charAt(0).toUpperCase() + language.slice(1)} — {documentId.slice(0, 8)}
+            </span>
           </div>
           <div className={styles.editorSurface}>
             <div className={styles.editorWrapper}>
               <Editor
                 height="100%"
-                defaultLanguage="typescript"
+                defaultLanguage={language}
                 onMount={handleEditorMount}
+                onChange={handleMonacoChange}
                 options={{
                   minimap: { enabled: false },
                 }}
@@ -194,33 +360,108 @@ function EditorWithYjs({
               <span className="active">Terminal</span>
               <span>Debug Console</span>
               <span>Output</span>
+              {showExecutionOutput && (
+                <button
+                  type="button"
+                  onClick={execution.clear}
+                  style={{
+                    marginLeft: "8px",
+                    fontSize: "10px",
+                    color: "#94a3b8",
+                    cursor: "pointer",
+                    background: "none",
+                    border: "none",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.1em",
+                  }}
+                >
+                  Clear
+                </button>
+              )}
               <span style={{ marginLeft: "auto" }} className={styles.icon}>
                 remove
               </span>
               <span className={styles.icon}>close</span>
             </div>
             <div className={styles.terminalBody}>
-              <div className={styles.terminalLine}>
-                <span>~/architect/neural_core</span>
-                <span className={styles.icon}>chevron_right</span>
-                <span>npm run build:aether</span>
-              </div>
-              <div style={{ opacity: 0.7, marginTop: 8 }}>
-                <div>&gt; aether-noir@2.0.0-beta.4 build</div>
-                <div>&gt; noir-compiler ./src --optimization maximum --shading glass</div>
+              {showExecutionOutput ? (
                 <div style={{ marginTop: 8 }}>
-                  Initializing Noir Kernel... <span style={{ color: "#50fa7b" }}>SUCCESS</span>
+                  {execution.output && (
+                    <pre
+                      style={{
+                        margin: 0,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        fontFamily: "monospace",
+                        fontSize: "12px",
+                        color: "#e2e8f0",
+                        opacity: 0.85,
+                      }}
+                    >
+                      {execution.output}
+                    </pre>
+                  )}
+                  {execution.error && (
+                    <div
+                      style={{
+                        marginTop: "8px",
+                        padding: "8px 12px",
+                        borderRadius: "6px",
+                        background: "rgba(239,68,68,0.1)",
+                        border: "1px solid rgba(239,68,68,0.3)",
+                        color: "#f87171",
+                        fontSize: "12px",
+                        fontFamily: "monospace",
+                      }}
+                    >
+                      ⚠ {execution.error}
+                    </div>
+                  )}
+                  {execution.isRunning && (
+                    <div
+                      style={{
+                        marginTop: "8px",
+                        color: "#60a5fa",
+                        fontSize: "11px",
+                        fontFamily: "monospace",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                      }}
+                    >
+                      <span
+                        className={styles.icon}
+                        style={{ fontSize: "14px", animation: "spin 1s linear infinite" }}
+                      >
+                        hourglass_top
+                      </span>
+                      Executing…
+                    </div>
+                  )}
+                  {!execution.isRunning && execution.executionTime !== null && (
+                    <div
+                      style={{
+                        marginTop: "8px",
+                        color: "#34d399",
+                        fontSize: "11px",
+                        fontFamily: "monospace",
+                      }}
+                    >
+                      ✓ Completed in {execution.executionTime.toFixed(3)}s
+                    </div>
+                  )}
                 </div>
-                <div>
-                  Tracing Aetheric Paths: <span style={{ color: "#70e2ff" }}>8.2k nodes found</span>
+              ) : terminalLines.length > 0 ? (
+                <div style={{ opacity: 0.7, marginTop: 8 }}>
+                  {terminalLines.map((line, index) => (
+                    <div key={`${index}-${line}`}>{line}</div>
+                  ))}
                 </div>
-                <div>
-                  Generating Glass Shaders: <span style={{ color: "#bd93f9" }}>DONE [24ms]</span>
+              ) : (
+                <div style={{ opacity: 0.7, marginTop: 8 }}>
+                  <div>No terminal output yet.</div>
                 </div>
-                <div style={{ marginTop: 12, color: "#8be9fd" }}>
-                  Build completed in 32ms. High-fidelity rendering enabled.
-                </div>
-              </div>
+              )}
               <div className={styles.terminalInput}>
                 <span>~/architect/neural_core</span>
                 <span className={styles.icon}>chevron_right</span>
@@ -240,23 +481,38 @@ function EditorWithYjs({
               <div className={styles.avatarStatus} />
             </div>
             <div>
-              <div className={styles.aiHeaderTitle}>ASSISTANT_V4</div>
-              <div className={styles.aiHeaderSubtitle}>STATUS: ANALYZING_NOIR_LOGIC</div>
+              <div className={styles.aiHeaderTitle}>iTECity AI</div>
+              <div className={styles.aiHeaderSubtitle}>STATUS: READY</div>
             </div>
           </div>
 
           <div className={styles.chatArea}>
-            <div className={`${styles.chatBubble} ${styles.chatBubbleUser}`}>
-              How can I optimize the telemetry data pipeline for multiple concurrent streams?
-            </div>
-            <div className={`${styles.chatBubble} ${styles.chatBubbleBot}`}>
-              I've drafted a more efficient stream handler with Aetheric Noir optimizations. Drag this block into your editor.
-            </div>
+            {chatMessages.length === 0 ? (
+              <div className={styles.chatBubble}>No messages yet.</div>
+            ) : (
+              chatMessages.map((message) => (
+                <div
+                  key={message.id}
+                  className={
+                    message.role === "user"
+                      ? `${styles.chatBubble} ${styles.chatBubbleUser}`
+                      : `${styles.chatBubble} ${styles.chatBubbleBot}`
+                  }
+                >
+                  {message.content}
+                </div>
+              ))
+            )}
           </div>
 
           <div className={styles.chatInput}>
             <div className={styles.chatInputBox}>
-              <textarea placeholder="Ask the Aetheric Architect..."></textarea>
+              <textarea
+                placeholder="Ask iTECity AI..."
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                onKeyDown={handleChatKeyDown}
+              ></textarea>
               <div className={styles.chatActions}>
                 <div className={styles.actionButtons}>
                   <button type="button" className={styles.navButton}>
@@ -266,7 +522,7 @@ function EditorWithYjs({
                     <span className={styles.icon}>mic</span>
                   </button>
                 </div>
-                <button type="button" className={styles.sendButton}>
+                <button type="button" className={styles.sendButton} onClick={handleSendChat}>
                   <span className={styles.icon}>send</span>
                 </button>
               </div>
