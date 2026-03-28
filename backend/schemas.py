@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, TypedDict
 
 SendCallback = Callable[[str, Any], Awaitable[None]]
 
@@ -103,3 +103,21 @@ class BranchCreateRequest(BaseModel):
 
     parent_doc_id: str
     branch_name: str
+
+
+# --- Autonomous Agent Swarm (LangGraph) ---
+
+
+class Swarm_State(TypedDict):
+    """Shared state passed between all LangGraph nodes in the autonomous agent swarm.
+    
+    This TypedDict serves as the state schema for the LangGraph workflow that
+    orchestrates Python_Developer, Security_Reviewer, and Sandbox_Tester nodes.
+    """
+
+    user_prompt: str
+    generated_code: str
+    security_status: str  # "approved" | "blocked" | ""
+    test_results: str
+    error_message: str
+    retry_count: int  # Initializes to 0, max 3 retries

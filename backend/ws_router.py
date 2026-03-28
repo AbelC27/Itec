@@ -6,6 +6,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from db import get_supabase_client
 from docker_manager import DockerIsolationManager
+from schemas import Swarm_State
+from swarm.graph import create_swarm_graph
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +143,84 @@ async def execute_code_ws(websocket: WebSocket, document_id: str) -> None:
             await manager.broadcast(
                 {"type": "error", "data": "Internal server error"},
                 document_id,
+            )
+        except Exception:
+            pass
+    finally:
+        manager.disconnect(websocket, document_id)
+
+
+@router.websocket("/ws/swarm/{document_id}")
+async def swarm_websocket(websocket: WebSocket, document_id: str) -> None:
+    """
+    WebSocket endpoint for streaming LangGraph execution updates.
+    
+    Protocol:
+    1. Client connects to /ws/swarm/{document_id}
+    2. Client sends JSON: {"user_prompt": "generate a fibonacci function"}
+    3. Server broadcasts state_update messages for each node execution
+    4. Server broadcasts complete message when workflow finishes
+    5. Connection is removed from room on disconnect or error
+    
+    Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 10.3, 10.4
+    """
+    await manager.connect(websocket, document_id)
+    
+    try:
+        # Receive initial message with user_prompt
+        data = await websocket.receive_json()
+        user_prompt = data.get("user_prompt", "")
+        
+        if not user_prompt:
+            await manager.broadcast(
+                {"type": "error", "message": "user_prompt is required"},
+                document_id
+            )
+            return
+        
+        # Initialize Swarm_State with default values
+        initial_state: Swarm_State = {
+            "user_prompt": user_prompt,
+            "generated_code": "",
+            "security_status": "",
+            "test_results": "",
+            "error_message": "",
+            "retry_count": 0
+        }
+        
+        # Create compiled LangGraph workflow
+        graph = create_swarm_graph()
+        
+        # Stream execution updates using astream()
+        async for event in graph.astream(initial_state):
+            # event is a dict with node name as key and updated state as value
+            node_name = list(event.keys())[0]
+            updated_state = event[node_name]
+            
+            # Broadcast state update to all clients in room
+            await manager.broadcast(
+                {
+                    "type": "state_update",
+                    "node": node_name,
+                    "state": updated_state
+                },
+                document_id
+            )
+        
+        # Send completion message when graph finishes
+        await manager.broadcast(
+            {"type": "complete", "final_state": initial_state},
+            document_id
+        )
+    
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, document_id)
+    except Exception as e:
+        logger.error("Swarm WebSocket error: %s", e)
+        try:
+            await manager.broadcast(
+                {"type": "error", "message": str(e)},
+                document_id
             )
         except Exception:
             pass
