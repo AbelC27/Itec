@@ -5,6 +5,20 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/providers/auth-provider";
 import type { Profile } from "@/types/database";
+import type { LucideIcon } from "lucide-react";
+import {
+  Bell,
+  Bot,
+  Code2,
+  FolderOpen,
+  Info,
+  LayoutGrid,
+  LogOut,
+  Search,
+  Settings,
+  Terminal,
+  Tv,
+} from "lucide-react";
 
 const topNavItems = [
   { label: "FILES", href: "/dashboard" },
@@ -13,18 +27,24 @@ const topNavItems = [
   { label: "VIEW", href: "#" },
 ];
 
-const sideNavIcons = [
-  { icon: "grid_view", href: "/dashboard", label: "Dashboard" },
-  { icon: "code", href: "/workspace", label: "Workspace" },
-  { icon: "terminal", href: "#", label: "Terminal" },
-  { icon: "folder_open", href: "#", label: "Files" },
-  { icon: "settings", href: "#", label: "Settings" },
+type NavIcon = {
+  icon: LucideIcon;
+  href: string;
+  label: string;
+};
+
+const sideNavIcons: NavIcon[] = [
+  { icon: LayoutGrid, href: "/dashboard", label: "Dashboard" },
+  { icon: Code2, href: "/workspace", label: "Workspace" },
+  { icon: Terminal, href: "#", label: "Terminal" },
+  { icon: FolderOpen, href: "#", label: "Files" },
+  { icon: Settings, href: "#", label: "Settings" },
 ];
 
-const bottomNavIcons = [
-  { icon: "tv_gen", href: "#", label: "Preview" },
-  { icon: "info", href: "#", label: "Info" },
-  { icon: "smart_toy", href: "#", label: "AI" },
+const bottomNavIcons: NavIcon[] = [
+  { icon: Tv, href: "#", label: "Preview" },
+  { icon: Info, href: "#", label: "Info" },
+  { icon: Bot, href: "#", label: "AI" },
 ];
 
 export default function DashboardLayout({
@@ -99,17 +119,17 @@ export default function DashboardLayout({
 
         {/* Search Bar */}
         <div className="hidden lg:flex items-center bg-white/5 rounded-lg px-3 py-1.5 border border-white/5 w-64">
-          <span className="material-symbols-outlined text-slate-500 text-sm mr-2">search</span>
+          <Search className="h-4 w-4 text-slate-500 mr-2" />
           <span className="text-[10px] text-slate-500">Search commands...</span>
         </div>
 
         {/* Right Actions */}
         <div className="flex items-center gap-3">
           <button className="text-slate-500 hover:text-white transition-colors" type="button">
-            <span className="material-symbols-outlined text-lg">settings</span>
+            <Settings className="h-5 w-5" />
           </button>
           <button className="text-slate-500 hover:text-white transition-colors relative" type="button">
-            <span className="material-symbols-outlined text-lg">notifications</span>
+            <Bell className="h-5 w-5" />
             <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-cyan-400 rounded-full" />
           </button>
           <button
@@ -139,6 +159,7 @@ export default function DashboardLayout({
         <nav className="flex-1 flex flex-col items-center gap-1">
           {sideNavIcons.map((item) => {
             const isActive = item.href !== "#" && pathname === item.href;
+            const Icon = item.icon;
             return (
               <button
                 key={item.label}
@@ -151,7 +172,7 @@ export default function DashboardLayout({
                     : "w-10 h-10 rounded-lg flex items-center justify-center text-slate-600 hover:text-slate-300 hover:bg-white/5 transition-all duration-200"
                 }
               >
-                <span className="material-symbols-outlined text-lg">{item.icon}</span>
+                <Icon className="h-5 w-5" />
               </button>
             );
           })}
@@ -159,17 +180,20 @@ export default function DashboardLayout({
 
         {/* Bottom Icons */}
         <div className="flex flex-col items-center gap-1 mt-auto">
-          {bottomNavIcons.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              onClick={() => handleNavClick(item.href)}
-              title={item.label}
-              className="w-10 h-10 rounded-lg flex items-center justify-center text-slate-600 hover:text-slate-300 hover:bg-white/5 transition-all duration-200"
-            >
-              <span className="material-symbols-outlined text-lg">{item.icon}</span>
-            </button>
-          ))}
+          {bottomNavIcons.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => handleNavClick(item.href)}
+                title={item.label}
+                className="w-10 h-10 rounded-lg flex items-center justify-center text-slate-600 hover:text-slate-300 hover:bg-white/5 transition-all duration-200"
+              >
+                <Icon className="h-5 w-5" />
+              </button>
+            );
+          })}
           <button
             onClick={handleSignOut}
             disabled={isLoggingOut}
@@ -177,7 +201,7 @@ export default function DashboardLayout({
             className="w-10 h-10 rounded-lg flex items-center justify-center text-slate-600 hover:text-red-400 hover:bg-red-500/5 transition-all duration-200 disabled:opacity-50"
             type="button"
           >
-            <span className="material-symbols-outlined text-lg">logout</span>
+            <LogOut className="h-5 w-5" />
           </button>
         </div>
       </aside>
