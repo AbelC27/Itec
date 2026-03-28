@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileClock, FileCode2, Loader2, AlertCircle } from "lucide-react";
-import { getDocuments } from "@/lib/api";
+import { FileClock, FileCode2, Loader2, AlertCircle, Trash2 } from "lucide-react";
+import { getDocuments, deleteDocument } from "@/lib/api";
 import type { Document } from "@/types/database";
 
 const LANGUAGE_COLORS: Record<string, string> = {
@@ -28,6 +28,7 @@ export default function RecentFiles() {
     const [documents, setDocuments] = useState<Document[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
 
     useEffect(() => {
         let isMounted = true;
@@ -56,6 +57,22 @@ export default function RecentFiles() {
             isMounted = false;
         };
     }, []);
+
+    const handleDelete = async (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        if (!confirm("Are you sure you want to delete this document?")) return;
+
+        setDeletingId(id);
+        setError(null);
+        try {
+            await deleteDocument(id);
+            setDocuments((prev) => prev.filter((doc) => doc.id !== id));
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to delete document");
+        } finally {
+            setDeletingId(null);
+        }
+    };
 
     return (
         <section className="rounded-2xl border border-slate-900 bg-slate-950/70 p-6">
@@ -105,7 +122,7 @@ export default function RecentFiles() {
                             key={doc.id}
                             type="button"
                             onClick={() => router.push(`/editor/${doc.id}`)}
-                            className="flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition hover:border-slate-800 hover:bg-slate-900/60"
+                            className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left transition hover:border-slate-800 hover:bg-slate-900/60"
                         >
                             <FileCode2 className="h-4 w-4 shrink-0 text-slate-400" />
                             <span className="flex-1 truncate text-sm text-slate-200">
@@ -119,6 +136,19 @@ export default function RecentFiles() {
                             <span className="text-[10px] tabular-nums text-slate-500">
                                 {formatRelativeTime(doc.updated_at)}
                             </span>
+                            <button
+                                type="button"
+                                onClick={(e) => handleDelete(e, doc.id)}
+                                disabled={deletingId === doc.id}
+                                className="ml-2 rounded p-1.5 text-slate-500 opacity-0 transition hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 disabled:opacity-50"
+                                title="Delete Document"
+                            >
+                                {deletingId === doc.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-red-400" />
+                                ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                )}
+                            </button>
                         </button>
                     );
                 })}

@@ -8,21 +8,31 @@ type WsExecutionMessage =
   | { type: "stdout"; data: string }
   | { type: "stderr"; data: string }
   | { type: "error"; data: string }
-  | { type: "complete"; data: { execution_time?: number } };
+  | { type: "complete"; data: { execution_time?: number; exit_code?: number } };
 
 export interface UseExecutionReturn {
   /** True while code is being executed on the server. */
   isRunning: boolean;
   /** Accumulated stdout + stderr output. */
   output: string;
+  /** Accumulated stderr only. */
+  stderr: string;
   /** Connection or server error message, if any. */
   error: string | null;
   /** Total execution time in seconds (set after completion). */
   executionTime: number | null;
+  /** Exit code of the execution (set after completion). */
+  exitCode: number | null;
   /** Send code to be executed. Opens a new WebSocket connection. */
   execute: (language: string, code: string) => void;
   /** Clear all output and errors. */
   clear: () => void;
+  /** Explanation string from the AI explainer. */
+  aiExplanation: string | null;
+  /** True while waiting for the AI explainer. */
+  isExplaining: boolean;
+  /** Call the AI explainer API. */
+  explainWithAI: (language: string, code: string) => Promise<void>;
 }
 
 /**
@@ -35,8 +45,13 @@ export interface UseExecutionReturn {
 export function useExecution(documentId: string): UseExecutionReturn {
   const [isRunning, setIsRunning] = useState(false);
   const [output, setOutput] = useState("");
+  const [stderrStr, setStderrStr] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [executionTime, setExecutionTime] = useState<number | null>(null);
+  const [exitCode, setExitCode] = useState<number | null>(null);
+  
+  const [isExplaining, setIsExplaining] = useState(false);
+  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   // Cleanup on unmount
@@ -59,8 +74,11 @@ export function useExecution(documentId: string): UseExecutionReturn {
 
       // Reset state
       setOutput("");
+      setStderrStr("");
       setError(null);
       setExecutionTime(null);
+      setExitCode(null);
+      setAiExplanation(null);
       setIsRunning(true);
 
       let wsUrl: string;
@@ -102,6 +120,7 @@ export function useExecution(documentId: string): UseExecutionReturn {
             break;
           case "stderr":
             setOutput((prev) => prev + msg.data);
+            setStderrStr((prev) => prev + msg.data);
             break;
           case "error":
             setError(typeof msg.data === "string" ? msg.data : "Execution error");
@@ -109,6 +128,7 @@ export function useExecution(documentId: string): UseExecutionReturn {
             break;
           case "complete":
             setExecutionTime(msg.data?.execution_time ?? null);
+            setExitCode(msg.data?.exit_code ?? null);
             setIsRunning(false);
             break;
         }
@@ -141,9 +161,46 @@ export function useExecution(documentId: string): UseExecutionReturn {
 
   const clear = useCallback(() => {
     setOutput("");
+    setStderrStr("");
     setError(null);
     setExecutionTime(null);
+    setExitCode(null);
+    setAiExplanation(null);
   }, []);
 
-  return { isRunning, output, error, executionTime, execute, clear };
+  const explainWithAI = useCallback(async (language: string, code: string) => {
+    if (!stderrStr.trim()) return;
+    
+    setIsExplaining(true);
+    setAiExplanation(null);
+    
+    try {
+      // Import here to avoid cyclic dep or move to top
+      const { explainError } = await import("@/lib/api");
+      const result = await explainError({
+        language,
+        code,
+        stderr: stderrStr,
+      });
+      setAiExplanation(result.explanation);
+    } catch (err) {
+      setAiExplanation(`Failed to get explanation: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsExplaining(false);
+    }
+  }, [stderrStr]);
+
+  return { 
+    isRunning, 
+    output, 
+    stderr: stderrStr,
+    error, 
+    executionTime, 
+    exitCode,
+    execute, 
+    clear,
+    aiExplanation,
+    isExplaining,
+    explainWithAI
+  };
 }

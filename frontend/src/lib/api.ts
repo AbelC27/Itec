@@ -1,4 +1,5 @@
 import type { Document } from "@/types/database";
+import type { ExecutionHistoryEntry } from "@/types/execution-history";
 
 type ApiErrorPayload = {
     message?: string;
@@ -160,6 +161,47 @@ export async function createDocument(
     init?: RequestInit
 ): Promise<Document> {
     return fetchJson<Document>("/api/documents", {
+        method: "POST",
+        body: JSON.stringify(data),
+        ...init,
+    });
+}
+
+export async function deleteDocument(
+    documentId: string,
+    init?: RequestInit
+): Promise<void> {
+    return fetchJson<void>(`/api/documents/${documentId}`, {
+        method: "DELETE",
+        ...init,
+    });
+}
+
+export async function getDocumentHistory(
+    documentId: string,
+    init?: RequestInit
+): Promise<ExecutionHistoryEntry[]> {
+    return fetchJson<ExecutionHistoryEntry[]>(
+        `/api/documents/${documentId}/history`,
+        init
+    );
+}
+
+export type ExplainErrorRequest = {
+    language: string;
+    code: string;
+    stderr: string;
+};
+
+export type ExplainErrorResponse = {
+    explanation: string;
+};
+
+export async function explainError(
+    data: ExplainErrorRequest,
+    init?: RequestInit
+): Promise<ExplainErrorResponse> {
+    return fetchJson<ExplainErrorResponse>("/api/ai/explain", {
         method: "POST",
         body: JSON.stringify(data),
         ...init,

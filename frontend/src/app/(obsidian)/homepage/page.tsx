@@ -1,4 +1,6 @@
 import { Activity, FolderOpen, Users } from "lucide-react";
+import QuickActions from "@/components/dashboard/QuickActions";
+import RecentFiles from "@/components/dashboard/RecentFiles";
 
 type OverviewCard = {
     title: string;
@@ -67,6 +69,11 @@ export default function ObsidianHomePage() {
                         </div>
                     );
                 })}
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+                <RecentFiles />
+                <QuickActions />
             </div>
         </section>
     );

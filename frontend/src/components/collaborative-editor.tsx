@@ -6,6 +6,7 @@ import { MonacoBinding } from "y-monaco";
 import { useProfile } from "@/hooks/useProfile";
 import { useYjsSupabase } from "@/hooks/useYjsSupabase";
 import { useExecution } from "@/hooks/useExecution";
+import { useHistory } from "@/hooks/useHistory";
 import { getWsBaseUrl } from "../lib/api";
 import type * as monaco from "monaco-editor";
 import styles from "./collaborative-editor.module.css";
@@ -60,6 +61,10 @@ function EditorWithYjs({
   const [terminalLines, setTerminalLines] = useState<string[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const [activeTab, setActiveTab] = useState<"Terminal" | "History">("Terminal");
+
+  // Hook up history
+  const historyHook = useHistory(documentId);
 
   // Execution hook
   const execution = useExecution(documentId);
@@ -168,8 +173,17 @@ function EditorWithYjs({
   const handleRunCode = useCallback(() => {
     const currentCode = editor?.getValue() ?? code;
     if (!currentCode.trim()) return;
+
+    // Switch to terminal tab
+    setActiveTab("Terminal");
     execution.execute(language, currentCode);
-  }, [editor, code, language, execution]);
+
+    // Refresh history after a short delay to let the execution finish
+    // A better approach would be to wait for the complete event, but this works for now
+    setTimeout(() => {
+      historyHook.refresh();
+    }, 2000);
+  }, [editor, code, language, execution, historyHook]);
 
   const handleSendChat = useCallback(() => {
     const trimmed = chatInput.trim();
@@ -357,10 +371,22 @@ function EditorWithYjs({
           </div>
           <div className={`${styles.terminal} ${styles.glassPanel}`}>
             <div className={styles.terminalHeader}>
-              <span className="active">Terminal</span>
+              <span
+                className={activeTab === "Terminal" ? "active" : ""}
+                onClick={() => setActiveTab("Terminal")}
+                style={{ cursor: "pointer" }}
+              >
+                Terminal
+              </span>
+              <span
+                className={activeTab === "History" ? "active" : ""}
+                onClick={() => setActiveTab("History")}
+                style={{ cursor: "pointer" }}
+              >
+                History {historyHook.history.length > 0 ? `(${historyHook.history.length})` : ""}
+              </span>
               <span>Debug Console</span>
-              <span>Output</span>
-              {showExecutionOutput && (
+              {activeTab === "Terminal" && showExecutionOutput && (
                 <button
                   type="button"
                   onClick={execution.clear}
@@ -442,12 +468,92 @@ function EditorWithYjs({
                     <div
                       style={{
                         marginTop: "8px",
-                        color: "#34d399",
+                        color: execution.exitCode === 0 ? "#34d399" : "#f87171",
                         fontSize: "11px",
                         fontFamily: "monospace",
                       }}
                     >
-                      ✓ Completed in {execution.executionTime.toFixed(3)}s
+                      {execution.exitCode === 0 ? "✓ Completed in " : "✗ Failed after "}
+                      {execution.executionTime.toFixed(3)}s
+                    </div>
+                  )}
+
+                  {!execution.isRunning && execution.exitCode !== null && execution.exitCode > 0 && (
+                    <div style={{ marginTop: "12px" }}>
+                      {!execution.aiExplanation && !execution.isExplaining && (
+                        <button
+                          type="button"
+                          onClick={() => execution.explainWithAI(language, editor?.getValue() ?? code)}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "6px 10px",
+                            borderRadius: "4px",
+                            background: "rgba(168,85,247,0.15)",
+                            border: "1px solid rgba(168,85,247,0.3)",
+                            color: "#d8b4fe",
+                            fontSize: "11px",
+                            fontFamily: "monospace",
+                            cursor: "pointer",
+                            transition: "all 0.2s",
+                          }}
+                        >
+                          <span>🤖</span> Explain with AI
+                        </button>
+                      )}
+
+                      {execution.isExplaining && (
+                        <div
+                          style={{
+                            color: "#d8b4fe",
+                            fontSize: "11px",
+                            fontFamily: "monospace",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                          }}
+                        >
+                          <span
+                            className={styles.icon}
+                            style={{ fontSize: "14px", animation: "spin 1s linear infinite" }}
+                          >
+                            hourglass_empty
+                          </span>
+                          Analyzing error…
+                        </div>
+                      )}
+
+                      {execution.aiExplanation && (
+                        <div
+                          style={{
+                            marginTop: "8px",
+                            padding: "12px",
+                            borderRadius: "6px",
+                            background: "rgba(168,85,247,0.05)",
+                            border: "1px solid rgba(168,85,247,0.2)",
+                            color: "#e9d5ff",
+                            fontSize: "12px",
+                            lineHeight: "1.5",
+                            fontFamily: "system-ui, -apple-system, sans-serif",
+                            whiteSpace: "pre-wrap",
+                          }}
+                        >
+                          <div style={{
+                            fontSize: "10px",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.1em",
+                            color: "#c084fc",
+                            marginBottom: "8px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px"
+                          }}>
+                            <span>🤖</span> AI Explanation
+                          </div>
+                          {execution.aiExplanation}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -462,12 +568,79 @@ function EditorWithYjs({
                   <div>No terminal output yet.</div>
                 </div>
               )}
-              <div className={styles.terminalInput}>
-                <span>~/architect/neural_core</span>
-                <span className={styles.icon}>chevron_right</span>
-                <input placeholder="Awaiting architect command..." type="text" />
-              </div>
+              {activeTab === "Terminal" && (
+                <div className={styles.terminalInput}>
+                  <span>~/architect/neural_core</span>
+                  <span className={styles.icon}>chevron_right</span>
+                  <input placeholder="Awaiting architect command..." type="text" />
+                </div>
+              )}
             </div>
+
+          {activeTab === "History" && (
+            <div className={styles.terminalBody} style={{ overflowY: "auto", maxHeight: "100%" }}>
+              {historyHook.isLoading ? (
+                <div style={{ opacity: 0.7, marginTop: 8 }}>Loading history...</div>
+              ) : historyHook.error ? (
+                <div style={{ color: "#f87171", marginTop: 8 }}>⚠ {historyHook.error}</div>
+              ) : historyHook.history.length === 0 ? (
+                <div style={{ opacity: 0.7, marginTop: 8 }}>No execution history yet.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "8px" }}>
+                  {historyHook.history.map((entry) => (
+                    <div
+                      key={entry.id}
+                      style={{
+                        padding: "10px",
+                        borderRadius: "4px",
+                        background: "rgba(15, 23, 42, 0.4)",
+                        border: "1px solid rgba(51, 65, 85, 0.5)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center"
+                      }}
+                    >
+                      <div>
+                        <div style={{
+                          fontSize: "12px",
+                          color: entry.stderr ? "#f87171" : "#34d399",
+                          fontFamily: "monospace",
+                          marginBottom: "4px"
+                        }}>
+                          {entry.stderr ? "✗ Failed" : "✓ Success"} • {new Date(entry.created_at).toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: "11px", color: "#94a3b8" }}>
+                          {entry.execution_time.toFixed(2)}s • {entry.language}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (editor && confirm("Restore this code snapshot? Current editor contents will be overwritten.")) {
+                            editor.setValue(entry.code_snapshot);
+                          }
+                        }}
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: "4px",
+                          background: "rgba(59, 130, 246, 0.1)",
+                          border: "1px solid rgba(59, 130, 246, 0.3)",
+                          color: "#93c5fd",
+                          fontSize: "10px",
+                          textTransform: "uppercase",
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                        }}
+                      >
+                        Restore Code
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           </div>
         </section>
 
