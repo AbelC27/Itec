@@ -5,7 +5,7 @@ import time
 
 import docker
 
-from schemas import LANGUAGE_IMAGES, SendCallback
+from schemas import LANGUAGE_IMAGES, ResourceEstimate, SendCallback
 from ai_analyzer import analyze
 
 
@@ -27,7 +27,7 @@ class DockerIsolationManager:
         language: str,
         code: str,
         send: SendCallback,
-    ) -> None:
+    ) -> ResourceEstimate | None:
         """
         Run code in an isolated container and stream output via the send callback.
 
@@ -38,7 +38,7 @@ class DockerIsolationManager:
             image = self._resolve_image(language)
         except ValueError as exc:
             await send("error", str(exc))
-            return
+            return None
 
         command = self._build_command(language, code)
 
@@ -91,13 +91,17 @@ class DockerIsolationManager:
                     {"execution_time": execution_time, "exit_code": exit_code},
                 )
 
+            return estimate
+
         except docker.errors.ImageNotFound:
             await send(
                 "error",
                 f"Execution environment not ready for language: {language}",
             )
+            return None
         except docker.errors.DockerException:
             await send("error", "Code execution service is unavailable")
+            return None
         finally:
             # Task 4.7: Guarantee container cleanup on all paths
             if container is not None:

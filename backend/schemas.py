@@ -31,3 +31,17 @@ class ExecuteResult:
     execution_time: float
     timed_out: bool
     exit_code: int
+
+
+@dataclass
+class ExecutionRecord:
+    """Represents a single execution history row for Supabase insertion."""
+
+    document_id: str
+    language: str
+    code_snapshot: str
+    mem_limit: str
+    nano_cpus: int
+    stdout: str
+    stderr: str
+    execution_time: float
