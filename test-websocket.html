@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    <div id="status">Connecting...</div>
+    <div id="log"></div>
+    
+    <script>
+        const log = document.getElementById('log');
+        const status = document.getElementById('status');
+        
+        function addLog(message) {
+            const p = document.createElement('p');
+            p.textContent = new Date().toLocaleTimeString() + ': ' + message;
+            log.appendChild(p);
+        }
+        
+        try {
+            const ws = new WebSocket('ws://localhost:8000/ws/swarm/test-doc');
+            
+            ws.onopen = () => {
+                status.textContent = 'Connected!';
+                status.style.color = 'green';
+                addLog('WebSocket connected successfully');
+                
+                // Send test message
+                ws.send(JSON.stringify({ user_prompt: 'test' }));
+                addLog('Sent test message');
+            };
+            
+            ws.onmessage = (event) => {
+                addLog('Received: ' + event.data);
+            };
+            
+            ws.onerror = (error) => {
+                status.textContent = 'Error!';
+                status.style.color = 'red';
+                addLog('Error: ' + JSON.stringify(error));
+            };
+            
+            ws.onclose = (event) => {
+                status.textContent = 'Disconnected';
+                status.style.color = 'orange';
+                addLog('Closed: ' + event.code + ' - ' + event.reason);
+            };
+        } catch (error) {
+            status.textContent = 'Failed to create WebSocket';
+            status.style.color = 'red';
+            addLog('Exception: ' + error.message);
+        }
+    </script>
+</body>
+</html>

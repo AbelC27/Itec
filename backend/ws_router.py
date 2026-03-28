@@ -26,9 +26,10 @@ class ConnectionManager:
 
     def disconnect(self, websocket: WebSocket, document_id: str) -> None:
         if document_id in self.active_connections:
-            self.active_connections[document_id].remove(websocket)
-            if not self.active_connections[document_id]:
-                del self.active_connections[document_id]
+            if websocket in self.active_connections[document_id]:
+                self.active_connections[document_id].remove(websocket)
+                if not self.active_connections[document_id]:
+                    del self.active_connections[document_id]
 
     async def broadcast(self, message: dict, document_id: str) -> None:
         connections = self.active_connections.get(document_id, [])
@@ -191,11 +192,17 @@ async def swarm_websocket(websocket: WebSocket, document_id: str) -> None:
         # Create compiled LangGraph workflow
         graph = create_swarm_graph()
         
+        # Track the latest state as we stream updates
+        final_state = initial_state
+        
         # Stream execution updates using astream()
         async for event in graph.astream(initial_state):
             # event is a dict with node name as key and updated state as value
             node_name = list(event.keys())[0]
             updated_state = event[node_name]
+            
+            # Update our tracked final state
+            final_state = updated_state
             
             # Broadcast state update to all clients in room
             await manager.broadcast(
@@ -209,12 +216,12 @@ async def swarm_websocket(websocket: WebSocket, document_id: str) -> None:
         
         # Send completion message when graph finishes
         await manager.broadcast(
-            {"type": "complete", "final_state": initial_state},
+            {"type": "complete", "final_state": final_state},
             document_id
         )
     
     except WebSocketDisconnect:
-        manager.disconnect(websocket, document_id)
+        pass
     except Exception as e:
         logger.error("Swarm WebSocket error: %s", e)
         try:

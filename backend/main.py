@@ -25,7 +25,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,6 +35,16 @@ app.add_middleware(
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/api/ws-test")
+def ws_test():
+    """Test endpoint to verify WebSocket configuration."""
+    return {
+        "status": "ok",
+        "websocket_url": "ws://localhost:8000/ws/swarm/test-doc",
+        "message": "WebSocket endpoint is available"
+    }
 
 
 app.include_router(ws_router)
