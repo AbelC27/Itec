@@ -5,7 +5,6 @@ import { executeCode, LANGUAGE_MAP } from "./executionHandler";
 const DEFAULT_BACKEND_BASE_URL = "http://localhost:8000";
 const DOCUMENT_ID_KEY = "itecify.documentId";
 const CONNECTION_KEY = "itecify.connection";
-const PUSH_DEBOUNCE_MS = 200;
 const LOCAL_BRIDGE_HOST = "127.0.0.1";
 const LOCAL_BRIDGE_PORT = 32145;
 
@@ -13,6 +12,7 @@ type WorkspaceConnection = {
   documentId: string;
   title?: string;
   backendBaseUrl?: string;
+  syncedContent?: string;
   connectedAt: string;
 };
 
@@ -20,13 +20,18 @@ type WorkspaceConnectionInput = {
   documentId: string;
   title?: string;
   backendBaseUrl?: string;
+  content?: string;
 };
 
 let isExecuting = false;
 let didWarnMissingDocumentId = false;
 let didWarnSyncFailure = false;
-let isApplyingPull = false;
-let pushDebounceHandle: NodeJS.Timeout | undefined;
+
+type DocumentSyncChange = {
+  range_offset: number;
+  range_length: number;
+  text: string;
+};
 
 function normalizeBaseUrl(value: string | undefined): string {
   return (value || DEFAULT_BACKEND_BASE_URL).trim().replace(/\/+$/, "");
@@ -68,9 +73,15 @@ function getBackendBaseUrl(context: vscode.ExtensionContext): string {
   );
 }
 
+function getStoredSyncedContent(
+  context: vscode.ExtensionContext
+): string | undefined {
+  return getStoredConnection(context)?.syncedContent;
+}
+
 async function setStoredConnection(
   context: vscode.ExtensionContext,
-  connection: Omit<WorkspaceConnection, "connectedAt"> & { connectedAt?: string }
+  connection: WorkspaceConnectionInput & { connectedAt?: string }
 ): Promise<void> {
   const normalized: WorkspaceConnection = {
     documentId: connection.documentId.trim(),
@@ -78,6 +89,8 @@ async function setStoredConnection(
     backendBaseUrl: connection.backendBaseUrl
       ? normalizeBaseUrl(connection.backendBaseUrl)
       : undefined,
+    syncedContent:
+      typeof connection.content === "string" ? connection.content : undefined,
     connectedAt: connection.connectedAt ?? new Date().toISOString(),
   };
 
@@ -87,6 +100,24 @@ async function setStoredConnection(
   // Clear legacy global values to prevent cross-workspace bleed.
   await context.globalState.update(CONNECTION_KEY, undefined);
   await context.globalState.update(DOCUMENT_ID_KEY, undefined);
+}
+
+async function setStoredSyncedContent(
+  context: vscode.ExtensionContext,
+  syncedContent: string
+): Promise<void> {
+  const existing = getStoredConnection(context);
+  if (!existing) {
+    return;
+  }
+
+  await setStoredConnection(context, {
+    documentId: existing.documentId,
+    title: existing.title,
+    backendBaseUrl: existing.backendBaseUrl,
+    content: syncedContent,
+    connectedAt: existing.connectedAt,
+  });
 }
 
 async function clearStoredConnection(
@@ -106,7 +137,13 @@ async function setStoredDocumentId(
 ): Promise<void> {
   const existing = getStoredConnection(context);
   if (existing) {
-    await setStoredConnection(context, { ...existing, documentId });
+    await setStoredConnection(context, {
+      documentId,
+      title: existing.title,
+      backendBaseUrl: existing.backendBaseUrl,
+      content: existing.syncedContent,
+      connectedAt: existing.connectedAt,
+    });
     return;
   }
 
@@ -145,7 +182,7 @@ function updateConnectionStatusBar(
   statusBar.tooltip = [
     `iTECify workspace linked to ${connection.documentId}`,
     `Backend: ${getBackendBaseUrl(context)}`,
-    "Enter pushes to cloud. Shift+Enter pulls from cloud.",
+    "Use iTECify Push Code and Pull Code when you want to sync.",
   ].join("\n");
 }
 
@@ -175,7 +212,7 @@ async function linkWorkspaceConnection(
         : "manual input";
 
   vscode.window.showInformationMessage(
-    `iTECify: Linked to ${connectionLabel} from ${sourceLabel}. Enter now pushes and Shift+Enter pulls.`
+    `iTECify: Linked to ${connectionLabel} from ${sourceLabel}. Use Push Code and Pull Code when you want to sync.`
   );
 }
 
@@ -343,6 +380,7 @@ function startLocalBridge(
               documentId,
               title: payload.title,
               backendBaseUrl: payload.backendBaseUrl,
+              content: payload.content,
             },
             "browser"
           );
@@ -448,21 +486,54 @@ async function runCloudExecution(
   }
 }
 
-function isEnterChange(event: vscode.TextDocumentChangeEvent): boolean {
-  return event.contentChanges.some((change) => change.text.includes("\n"));
-}
-
-function scheduleSyncPush(
-  document: vscode.TextDocument,
-  context: vscode.ExtensionContext
-): void {
-  if (pushDebounceHandle) {
-    clearTimeout(pushDebounceHandle);
+function getActiveFileEditor(): vscode.TextEditor | undefined {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    return undefined;
   }
 
-  pushDebounceHandle = setTimeout(() => {
-    void syncPushDocument(document, context);
-  }, PUSH_DEBOUNCE_MS);
+  if (editor.document.isUntitled || editor.document.uri.scheme !== "file") {
+    return undefined;
+  }
+
+  return editor;
+}
+
+function computeSyncChanges(
+  previousContent: string,
+  nextContent: string
+): DocumentSyncChange[] {
+  if (previousContent === nextContent) {
+    return [];
+  }
+
+  let start = 0;
+  while (
+    start < previousContent.length &&
+    start < nextContent.length &&
+    previousContent[start] === nextContent[start]
+  ) {
+    start += 1;
+  }
+
+  let previousEnd = previousContent.length;
+  let nextEnd = nextContent.length;
+  while (
+    previousEnd > start &&
+    nextEnd > start &&
+    previousContent[previousEnd - 1] === nextContent[nextEnd - 1]
+  ) {
+    previousEnd -= 1;
+    nextEnd -= 1;
+  }
+
+  return [
+    {
+      range_offset: start,
+      range_length: previousEnd - start,
+      text: nextContent.slice(start, nextEnd),
+    },
+  ];
 }
 
 async function syncPushDocument(
@@ -478,13 +549,31 @@ async function syncPushDocument(
     if (!didWarnMissingDocumentId) {
       didWarnMissingDocumentId = true;
       vscode.window.showInformationMessage(
-        "iTECify: Link a workspace first so Enter can push code to the cloud."
+        "iTECify: Link a workspace first so Push Code knows which document to sync."
       );
     }
     return;
   }
 
   didWarnMissingDocumentId = false;
+
+  const syncedContent = getStoredSyncedContent(context);
+  if (typeof syncedContent !== "string") {
+    if (!didWarnSyncFailure) {
+      didWarnSyncFailure = true;
+      vscode.window.showInformationMessage(
+        "iTECify: Pull once, or reconnect from the web app, before pushing editor changes."
+      );
+    }
+    return;
+  }
+
+  const nextContent = document.getText();
+  const changes = computeSyncChanges(syncedContent, nextContent);
+  if (changes.length === 0) {
+    didWarnSyncFailure = false;
+    return;
+  }
 
   try {
     const response = await fetch(
@@ -494,13 +583,15 @@ async function syncPushDocument(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           document_id: documentId,
-          content: document.getText(),
+          base_content: syncedContent,
+          changes,
         }),
       }
     );
 
     if (response.ok) {
       didWarnSyncFailure = false;
+      await setStoredSyncedContent(context, nextContent);
       return;
     }
 
@@ -510,6 +601,8 @@ async function syncPushDocument(
       const hint =
         response.status === 404
           ? "The backend responded, but the sync route was not found. Restart the FastAPI server from the current backend code."
+          : response.status === 409
+            ? "Remote content changed. Pull latest, then try again."
           : message;
 
       vscode.window.showWarningMessage(
@@ -526,10 +619,24 @@ async function syncPushDocument(
   }
 }
 
-async function pullCode(context: vscode.ExtensionContext): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
+async function pushCode(context: vscode.ExtensionContext): Promise<void> {
+  const editor = getActiveFileEditor();
   if (!editor) {
-    vscode.window.showErrorMessage("iTECify: No active editor found.");
+    vscode.window.showErrorMessage(
+      "iTECify: Open a saved file before pushing code to the cloud."
+    );
+    return;
+  }
+
+  await syncPushDocument(editor.document, context);
+}
+
+async function pullCode(context: vscode.ExtensionContext): Promise<void> {
+  const editor = getActiveFileEditor();
+  if (!editor) {
+    vscode.window.showErrorMessage(
+      "iTECify: Open a saved file before pulling code from the cloud."
+    );
     return;
   }
 
@@ -562,18 +669,16 @@ async function pullCode(context: vscode.ExtensionContext): Promise<void> {
       editor.document.positionAt(editor.document.getText().length)
     );
 
-    isApplyingPull = true;
-    try {
-      const applied = await editor.edit((editBuilder) => {
-        editBuilder.replace(fullRange, content);
-      });
+    const applied = await editor.edit((editBuilder) => {
+      editBuilder.replace(fullRange, content);
+    });
 
-      if (!applied) {
-        vscode.window.showErrorMessage("iTECify: Failed to apply pulled content.");
-      }
-    } finally {
-      isApplyingPull = false;
+    if (!applied) {
+      vscode.window.showErrorMessage("iTECify: Failed to apply pulled content.");
     }
+
+    await setStoredSyncedContent(context, content);
+    didWarnSyncFailure = false;
   } catch {
     vscode.window.showErrorMessage(
       "iTECify: Pull failed. Is the backend running?"
@@ -629,9 +734,11 @@ async function createBranch(
       const existingConnection = getStoredConnection(context);
       if (existingConnection) {
         await setStoredConnection(context, {
-          ...existingConnection,
           documentId: data.document_id,
           title: branchName,
+          backendBaseUrl: existingConnection.backendBaseUrl,
+          content: existingConnection.syncedContent,
+          connectedAt: existingConnection.connectedAt,
         });
       } else {
         await setStoredDocumentId(context, data.document_id);
@@ -726,6 +833,11 @@ export function activate(context: vscode.ExtensionContext): void {
     () => runCloudExecution(context, outputChannel)
   );
 
+  const pushDisposable = vscode.commands.registerCommand(
+    "itecify.pushCode",
+    () => pushCode(context)
+  );
+
   const pullDisposable = vscode.commands.registerCommand(
     "itecify.pullCode",
     () => pullCode(context)
@@ -754,22 +866,6 @@ export function activate(context: vscode.ExtensionContext): void {
     outputChannel
   );
 
-  const changeDisposable = vscode.workspace.onDidChangeTextDocument((event) => {
-    if (isApplyingPull || !isEnterChange(event)) {
-      return;
-    }
-
-    const activeEditor = vscode.window.activeTextEditor;
-    if (
-      !activeEditor ||
-      activeEditor.document.uri.toString() !== event.document.uri.toString()
-    ) {
-      return;
-    }
-
-    scheduleSyncPush(event.document, context);
-  });
-
   const newBranchStatusBar = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
     100
@@ -781,13 +877,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     runDisposable,
+    pushDisposable,
     pullDisposable,
     connectDisposable,
     createBranchDisposable,
     deleteBranchDisposable,
     uriDisposable,
     localBridgeDisposable,
-    changeDisposable,
     connectionStatusBar,
     newBranchStatusBar,
     outputChannel

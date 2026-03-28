@@ -41,14 +41,11 @@ const executionHandler_1 = require("./executionHandler");
 const DEFAULT_BACKEND_BASE_URL = "http://localhost:8000";
 const DOCUMENT_ID_KEY = "itecify.documentId";
 const CONNECTION_KEY = "itecify.connection";
-const PUSH_DEBOUNCE_MS = 200;
 const LOCAL_BRIDGE_HOST = "127.0.0.1";
 const LOCAL_BRIDGE_PORT = 32145;
 let isExecuting = false;
 let didWarnMissingDocumentId = false;
 let didWarnSyncFailure = false;
-let isApplyingPull = false;
-let pushDebounceHandle;
 function normalizeBaseUrl(value) {
     return (value || DEFAULT_BACKEND_BASE_URL).trim().replace(/\/+$/, "");
 }
@@ -73,6 +70,9 @@ function getStoredDocumentId(context) {
 function getBackendBaseUrl(context) {
     return normalizeBaseUrl(getStoredConnection(context)?.backendBaseUrl ?? getConfiguredBackendBaseUrl());
 }
+function getStoredSyncedContent(context) {
+    return getStoredConnection(context)?.syncedContent;
+}
 async function setStoredConnection(context, connection) {
     const normalized = {
         documentId: connection.documentId.trim(),
@@ -80,6 +80,7 @@ async function setStoredConnection(context, connection) {
         backendBaseUrl: connection.backendBaseUrl
             ? normalizeBaseUrl(connection.backendBaseUrl)
             : undefined,
+        syncedContent: typeof connection.content === "string" ? connection.content : undefined,
         connectedAt: connection.connectedAt ?? new Date().toISOString(),
     };
     await context.workspaceState.update(CONNECTION_KEY, normalized);
@@ -87,6 +88,19 @@ async function setStoredConnection(context, connection) {
     // Clear legacy global values to prevent cross-workspace bleed.
     await context.globalState.update(CONNECTION_KEY, undefined);
     await context.globalState.update(DOCUMENT_ID_KEY, undefined);
+}
+async function setStoredSyncedContent(context, syncedContent) {
+    const existing = getStoredConnection(context);
+    if (!existing) {
+        return;
+    }
+    await setStoredConnection(context, {
+        documentId: existing.documentId,
+        title: existing.title,
+        backendBaseUrl: existing.backendBaseUrl,
+        content: syncedContent,
+        connectedAt: existing.connectedAt,
+    });
 }
 async function clearStoredConnection(context) {
     await context.workspaceState.update(CONNECTION_KEY, undefined);
@@ -98,7 +112,13 @@ async function clearStoredConnection(context) {
 async function setStoredDocumentId(context, documentId) {
     const existing = getStoredConnection(context);
     if (existing) {
-        await setStoredConnection(context, { ...existing, documentId });
+        await setStoredConnection(context, {
+            documentId,
+            title: existing.title,
+            backendBaseUrl: existing.backendBaseUrl,
+            content: existing.syncedContent,
+            connectedAt: existing.connectedAt,
+        });
         return;
     }
     await context.workspaceState.update(DOCUMENT_ID_KEY, documentId);
@@ -128,7 +148,7 @@ function updateConnectionStatusBar(statusBar, context) {
     statusBar.tooltip = [
         `iTECify workspace linked to ${connection.documentId}`,
         `Backend: ${getBackendBaseUrl(context)}`,
-        "Enter pushes to cloud. Shift+Enter pulls from cloud.",
+        "Use iTECify Push Code and Pull Code when you want to sync.",
     ].join("\n");
 }
 async function linkWorkspaceConnection(context, statusBar, connection, source) {
@@ -145,7 +165,7 @@ async function linkWorkspaceConnection(context, statusBar, connection, source) {
         : source === "uri"
             ? "VS Code link"
             : "manual input";
-    vscode.window.showInformationMessage(`iTECify: Linked to ${connectionLabel} from ${sourceLabel}. Enter now pushes and Shift+Enter pulls.`);
+    vscode.window.showInformationMessage(`iTECify: Linked to ${connectionLabel} from ${sourceLabel}. Use Push Code and Pull Code when you want to sync.`);
 }
 async function promptForDocumentId(context, prompt) {
     const documentId = await vscode.window.showInputBox({
@@ -264,6 +284,7 @@ function startLocalBridge(context, statusBar, outputChannel) {
                         documentId,
                         title: payload.title,
                         backendBaseUrl: payload.backendBaseUrl,
+                        content: payload.content,
                     }, "browser");
                     writeBridgeJson(response, 200, {
                         ok: true,
@@ -338,16 +359,41 @@ async function runCloudExecution(context, outputChannel) {
         isExecuting = false;
     }
 }
-function isEnterChange(event) {
-    return event.contentChanges.some((change) => change.text.includes("\n"));
-}
-function scheduleSyncPush(document, context) {
-    if (pushDebounceHandle) {
-        clearTimeout(pushDebounceHandle);
+function getActiveFileEditor() {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        return undefined;
     }
-    pushDebounceHandle = setTimeout(() => {
-        void syncPushDocument(document, context);
-    }, PUSH_DEBOUNCE_MS);
+    if (editor.document.isUntitled || editor.document.uri.scheme !== "file") {
+        return undefined;
+    }
+    return editor;
+}
+function computeSyncChanges(previousContent, nextContent) {
+    if (previousContent === nextContent) {
+        return [];
+    }
+    let start = 0;
+    while (start < previousContent.length &&
+        start < nextContent.length &&
+        previousContent[start] === nextContent[start]) {
+        start += 1;
+    }
+    let previousEnd = previousContent.length;
+    let nextEnd = nextContent.length;
+    while (previousEnd > start &&
+        nextEnd > start &&
+        previousContent[previousEnd - 1] === nextContent[nextEnd - 1]) {
+        previousEnd -= 1;
+        nextEnd -= 1;
+    }
+    return [
+        {
+            range_offset: start,
+            range_length: previousEnd - start,
+            text: nextContent.slice(start, nextEnd),
+        },
+    ];
 }
 async function syncPushDocument(document, context) {
     if (document.isUntitled || document.uri.scheme !== "file") {
@@ -357,22 +403,38 @@ async function syncPushDocument(document, context) {
     if (!documentId) {
         if (!didWarnMissingDocumentId) {
             didWarnMissingDocumentId = true;
-            vscode.window.showInformationMessage("iTECify: Link a workspace first so Enter can push code to the cloud.");
+            vscode.window.showInformationMessage("iTECify: Link a workspace first so Push Code knows which document to sync.");
         }
         return;
     }
     didWarnMissingDocumentId = false;
+    const syncedContent = getStoredSyncedContent(context);
+    if (typeof syncedContent !== "string") {
+        if (!didWarnSyncFailure) {
+            didWarnSyncFailure = true;
+            vscode.window.showInformationMessage("iTECify: Pull once, or reconnect from the web app, before pushing editor changes.");
+        }
+        return;
+    }
+    const nextContent = document.getText();
+    const changes = computeSyncChanges(syncedContent, nextContent);
+    if (changes.length === 0) {
+        didWarnSyncFailure = false;
+        return;
+    }
     try {
         const response = await fetch(`${getBackendBaseUrl(context)}/api/docs/sync/push`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 document_id: documentId,
-                content: document.getText(),
+                base_content: syncedContent,
+                changes,
             }),
         });
         if (response.ok) {
             didWarnSyncFailure = false;
+            await setStoredSyncedContent(context, nextContent);
             return;
         }
         if (!didWarnSyncFailure) {
@@ -380,7 +442,9 @@ async function syncPushDocument(document, context) {
             const message = await response.text();
             const hint = response.status === 404
                 ? "The backend responded, but the sync route was not found. Restart the FastAPI server from the current backend code."
-                : message;
+                : response.status === 409
+                    ? "Remote content changed. Pull latest, then try again."
+                    : message;
             vscode.window.showWarningMessage(`iTECify: Cloud sync failed (${response.status}). ${hint || ""}`.trim());
         }
     }
@@ -391,10 +455,18 @@ async function syncPushDocument(document, context) {
         }
     }
 }
-async function pullCode(context) {
-    const editor = vscode.window.activeTextEditor;
+async function pushCode(context) {
+    const editor = getActiveFileEditor();
     if (!editor) {
-        vscode.window.showErrorMessage("iTECify: No active editor found.");
+        vscode.window.showErrorMessage("iTECify: Open a saved file before pushing code to the cloud.");
+        return;
+    }
+    await syncPushDocument(editor.document, context);
+}
+async function pullCode(context) {
+    const editor = getActiveFileEditor();
+    if (!editor) {
+        vscode.window.showErrorMessage("iTECify: Open a saved file before pulling code from the cloud.");
         return;
     }
     const documentId = await resolveDocumentId(context, "Enter the iTECify Document ID to pull");
@@ -411,18 +483,14 @@ async function pullCode(context) {
         const data = (await response.json());
         const content = typeof data.content === "string" ? data.content : "";
         const fullRange = new vscode.Range(editor.document.positionAt(0), editor.document.positionAt(editor.document.getText().length));
-        isApplyingPull = true;
-        try {
-            const applied = await editor.edit((editBuilder) => {
-                editBuilder.replace(fullRange, content);
-            });
-            if (!applied) {
-                vscode.window.showErrorMessage("iTECify: Failed to apply pulled content.");
-            }
+        const applied = await editor.edit((editBuilder) => {
+            editBuilder.replace(fullRange, content);
+        });
+        if (!applied) {
+            vscode.window.showErrorMessage("iTECify: Failed to apply pulled content.");
         }
-        finally {
-            isApplyingPull = false;
-        }
+        await setStoredSyncedContent(context, content);
+        didWarnSyncFailure = false;
     }
     catch {
         vscode.window.showErrorMessage("iTECify: Pull failed. Is the backend running?");
@@ -459,9 +527,11 @@ async function createBranch(context, statusBar) {
             const existingConnection = getStoredConnection(context);
             if (existingConnection) {
                 await setStoredConnection(context, {
-                    ...existingConnection,
                     documentId: data.document_id,
                     title: branchName,
+                    backendBaseUrl: existingConnection.backendBaseUrl,
+                    content: existingConnection.syncedContent,
+                    connectedAt: existingConnection.connectedAt,
                 });
             }
             else {
@@ -520,6 +590,7 @@ function activate(context) {
     updateConnectionStatusBar(connectionStatusBar, context);
     connectionStatusBar.show();
     const runDisposable = vscode.commands.registerCommand("itecify.runCloudExecution", () => runCloudExecution(context, outputChannel));
+    const pushDisposable = vscode.commands.registerCommand("itecify.pushCode", () => pushCode(context));
     const pullDisposable = vscode.commands.registerCommand("itecify.pullCode", () => pullCode(context));
     const connectDisposable = vscode.commands.registerCommand("itecify.connectWorkspace", () => connectWorkspace(context, connectionStatusBar));
     const createBranchDisposable = vscode.commands.registerCommand("itecify.createBranch", () => createBranch(context, connectionStatusBar));
@@ -527,22 +598,11 @@ function activate(context) {
     const uriHandler = new ItecifyUriHandler(context, connectionStatusBar);
     const uriDisposable = vscode.window.registerUriHandler(uriHandler);
     const localBridgeDisposable = startLocalBridge(context, connectionStatusBar, outputChannel);
-    const changeDisposable = vscode.workspace.onDidChangeTextDocument((event) => {
-        if (isApplyingPull || !isEnterChange(event)) {
-            return;
-        }
-        const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor ||
-            activeEditor.document.uri.toString() !== event.document.uri.toString()) {
-            return;
-        }
-        scheduleSyncPush(event.document, context);
-    });
     const newBranchStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     newBranchStatusBar.text = "$(git-branch) New Branch";
     newBranchStatusBar.command = "itecify.createBranch";
     newBranchStatusBar.tooltip = "iTECify: Create a new branch";
     newBranchStatusBar.show();
-    context.subscriptions.push(runDisposable, pullDisposable, connectDisposable, createBranchDisposable, deleteBranchDisposable, uriDisposable, localBridgeDisposable, changeDisposable, connectionStatusBar, newBranchStatusBar, outputChannel);
+    context.subscriptions.push(runDisposable, pushDisposable, pullDisposable, connectDisposable, createBranchDisposable, deleteBranchDisposable, uriDisposable, localBridgeDisposable, connectionStatusBar, newBranchStatusBar, outputChannel);
 }
 function deactivate() { }

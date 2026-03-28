@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import type { Profile } from "@/types/database";
@@ -14,10 +14,8 @@ export function useYjsSupabase(
   documentId: string,
   profile: Pick<Profile, "id" | "username" | "avatar_color_hex">
 ): UseYjsSupabaseReturn | null {
-  const docRef = useRef<Y.Doc | null>(null);
-  const providerRef = useRef<WebsocketProvider | null>(null);
+  const [state, setState] = useState<Omit<UseYjsSupabaseReturn, "isConnected"> | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const yDoc = new Y.Doc();
@@ -37,27 +35,26 @@ export function useYjsSupabase(
       setIsConnected(status === "connected");
     });
 
-    docRef.current = yDoc;
-    providerRef.current = provider;
-    setReady(true);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setState({
+      yDoc,
+      provider,
+      awareness: provider.awareness,
+    });
 
     return () => {
       provider.disconnect();
       provider.destroy();
       yDoc.destroy();
-      docRef.current = null;
-      providerRef.current = null;
-      setReady(false);
+      setState(null);
       setIsConnected(false);
     };
   }, [documentId, profile.id, profile.username, profile.avatar_color_hex]);
 
-  if (!ready || !docRef.current || !providerRef.current) return null;
+  if (!state) return null;
 
   return {
-    yDoc: docRef.current,
-    provider: providerRef.current,
-    awareness: providerRef.current.awareness,
+    ...state,
     isConnected,
   };
 }

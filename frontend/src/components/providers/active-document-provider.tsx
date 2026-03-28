@@ -22,14 +22,17 @@ export function ActiveDocumentProvider({
     children: React.ReactNode;
 }) {
     const [activeDocumentId, setActiveDocumentIdState] =
-        useState<string | null>(null);
+        useState<string | null>(() => {
+            if (typeof window === "undefined") {
+                return null;
+            }
+
+            return window.localStorage.getItem(STORAGE_KEY);
+        });
     const [isReady, setIsReady] = useState(false);
 
     useEffect(() => {
-        const stored = window.localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-            setActiveDocumentIdState(stored);
-        }
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setIsReady(true);
     }, []);
 

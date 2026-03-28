@@ -12,6 +12,7 @@ export interface Document {
   title: string;
   language: string;
   content?: string | null;
+  content_version?: number | null;
   owner_id: string | null;
   created_at: string;
   updated_at: string;

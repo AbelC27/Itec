@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { getDocument } from "@/lib/api";
 import type { Document } from "@/types/database";
@@ -17,6 +17,17 @@ export default function ObsidianWorkspacePage() {
     const { activeDocumentId, isReady } = useActiveDocument();
     const [document, setDocument] = useState<Document | null>(null);
     const [error, setError] = useState<string | null>(null);
+
+    const handleSnapshotChange = useCallback((content: string) => {
+        setDocument((current) => (
+            current
+                ? {
+                    ...current,
+                    content,
+                }
+                : current
+        ));
+    }, []);
 
     useEffect(() => {
         if (!activeDocumentId) {
@@ -89,19 +100,29 @@ export default function ObsidianWorkspacePage() {
         );
     }
 
+    if (!document) {
+        return (
+            <div className="flex h-[calc(100vh-8rem)] items-center justify-center">
+                <div className="text-sm uppercase tracking-[0.2em] text-slate-500 animate-pulse">
+                    Loading Document...
+                </div>
+            </div>
+        );
+    }
+
     // Pass the documentId to the editor once loaded
     return (
         <div style={{ height: "calc(100vh - 8rem)" }}>
-            {document && (
-                <VsCodeLinkBanner
-                    documentId={activeDocumentId}
-                    title={document.title}
-                />
-            )}
+            <VsCodeLinkBanner
+                documentId={activeDocumentId}
+                title={document.title}
+                content={document.content ?? ""}
+            />
             <CollaborativeEditor
                 documentId={activeDocumentId}
-                language={document?.language ?? "python"}
-                initialContent={document?.content ?? ""}
+                language={document.language ?? "python"}
+                initialContent={document.content ?? ""}
+                onSnapshotChange={handleSnapshotChange}
             />
         </div>
     );

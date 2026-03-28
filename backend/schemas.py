@@ -74,11 +74,21 @@ class DocumentResponse(BaseModel):
     updated_at: datetime
 
 
+class DocumentSyncChange(BaseModel):
+    """A text edit expressed as an offset/length replacement."""
+
+    range_offset: int
+    range_length: int
+    text: str
+
+
 class DocumentSyncPush(BaseModel):
     """Request body for pushing document content to cloud sync."""
 
     document_id: str
-    content: str
+    content: str | None = None
+    base_content: str | None = None
+    changes: list[DocumentSyncChange] | None = None
 
 
 class DocumentSyncPullResponse(BaseModel):

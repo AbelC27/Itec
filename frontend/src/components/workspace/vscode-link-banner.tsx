@@ -14,11 +14,13 @@ function getBackendBaseUrl(): string {
 type VsCodeLinkBannerProps = {
   documentId: string;
   title: string;
+  content: string;
 };
 
 export default function VsCodeLinkBanner({
   documentId,
   title,
+  content,
 }: VsCodeLinkBannerProps) {
   const [copied, setCopied] = useState<"id" | "link" | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -64,6 +66,7 @@ export default function VsCodeLinkBanner({
           documentId,
           title,
           backendBaseUrl: getBackendBaseUrl(),
+          content,
         }),
       });
 
@@ -89,14 +92,16 @@ export default function VsCodeLinkBanner({
         </div>
         <p className="text-sm text-slate-100">
           This workspace is linked by document ID. Connect from here to open the iTECify VS Code
-          extension, then press `Enter` in VS Code to push and `Shift+Enter` to pull.
+          extension, then use the explicit Push/Pull actions from VS Code instead of background
+          syncing.
         </p>
         <p className="text-xs text-slate-400">
           Current document: <span className="font-mono text-slate-200">{documentId}</span>
         </p>
         {connectStatus === "connected" && (
           <p className="text-xs text-emerald-300">
-            A running VS Code instance received this workspace. You can sync from the editor now.
+            A running VS Code instance received this workspace. Push or pull from the editor when
+            you are ready.
           </p>
         )}
         {connectStatus === "opening" && (

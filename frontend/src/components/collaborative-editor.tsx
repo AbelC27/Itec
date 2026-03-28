@@ -7,7 +7,12 @@ import { useProfile } from "@/hooks/useProfile";
 import { useYjsSupabase } from "@/hooks/useYjsSupabase";
 import { useExecution } from "@/hooks/useExecution";
 import { useHistory } from "@/hooks/useHistory";
-import { sendAiChat, ApiError, pushDocumentContent } from "../lib/api";
+import {
+  sendAiChat,
+  ApiError,
+  pullDocumentContent,
+  pushDocumentContent,
+} from "../lib/api";
 import {getChatSessions, createChatSession, deleteChatSession, getChatMessages, saveChatMessage } from "../lib/api";
 import type { AiChatSession } from "../lib/api";
 import type * as monaco from "monaco-editor";
@@ -40,6 +45,7 @@ interface CollaborativeEditorProps {
   documentId: string;
   language?: string;
   initialContent?: string;
+  onSnapshotChange?: (content: string) => void;
 }
 
 type ChatMessage = {
@@ -49,10 +55,19 @@ type ChatMessage = {
   createdAt: number;
 };
 
+type CloudSyncState =
+  | "synced"
+  | "dirty"
+  | "pushing"
+  | "pulling"
+  | "conflict"
+  | "error";
+
 export default function CollaborativeEditor({
   documentId,
   language = "python",
   initialContent = "",
+  onSnapshotChange,
 }: CollaborativeEditorProps) {
   const { profile, isLoading } = useProfile();
 
@@ -70,6 +85,7 @@ export default function CollaborativeEditor({
       profile={profile}
       language={language}
       initialContent={initialContent}
+      onSnapshotChange={onSnapshotChange}
     />
   );
 }
@@ -79,19 +95,24 @@ function EditorWithYjs({
   profile,
   language,
   initialContent,
+  onSnapshotChange,
 }: {
   documentId: string;
   profile: { id: string; username: string; avatar_color_hex: string };
   language: string;
   initialContent: string;
+  onSnapshotChange?: (content: string) => void;
 }) {
   const yjsState = useYjsSupabase(documentId, profile);
   const bindingRef = useRef<MonacoBinding | null>(null);
-  const cloudPersistTimeoutRef = useRef<number | null>(null);
+  const applyCloudContentRef = useRef<(nextContent: string) => void>(() => {});
+  const hasSeededInitialContentRef = useRef(false);
   const lastCloudContentRef = useRef(initialContent);
   const isApplyingCloudContentRef = useRef(false);
   const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [code, setCode] = useState("");
+  const [cloudSyncState, setCloudSyncState] = useState<CloudSyncState>("synced");
+  const [cloudSyncMessage, setCloudSyncMessage] = useState("Cloud snapshot ready.");
   const [terminalLines] = useState<string[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -193,7 +214,16 @@ function EditorWithYjs({
   }, [execution.easterEggTriggered]);
 
   useEffect(() => {
+    hasSeededInitialContentRef.current = false;
+    applyCloudContentRef.current = () => {};
+    setCloudSyncState("synced");
+    setCloudSyncMessage("Cloud snapshot ready.");
+  }, [documentId]);
+
+  useEffect(() => {
     lastCloudContentRef.current = initialContent;
+    setCloudSyncState("synced");
+    setCloudSyncMessage("Cloud snapshot ready.");
   }, [initialContent]);
 
   // Create binding when BOTH editor and yjsState are ready
@@ -231,25 +261,12 @@ function EditorWithYjs({
     const yDoc = yjsState.yDoc;
     const yText = yDoc.getText("content");
 
-    const syncTextToCloud = (nextContent: string) => {
-      if (cloudPersistTimeoutRef.current) {
-        window.clearTimeout(cloudPersistTimeoutRef.current);
-      }
-
-      cloudPersistTimeoutRef.current = window.setTimeout(() => {
-        void pushDocumentContent(documentId, nextContent)
-          .then(() => {
-            lastCloudContentRef.current = nextContent;
-          })
-          .catch(() => {
-            // Keep editing responsive; the extension/app can retry on the next change or poll cycle.
-          });
-      }, 350);
-    };
-
     const applyCloudContent = (nextContent: string) => {
       if (nextContent === yText.toString()) {
         lastCloudContentRef.current = nextContent;
+        setCode(nextContent);
+        setCloudSyncState("synced");
+        setCloudSyncMessage("Cloud snapshot ready.");
         return;
       }
 
@@ -263,13 +280,27 @@ function EditorWithYjs({
       isApplyingCloudContentRef.current = false;
       lastCloudContentRef.current = nextContent;
       setCode(nextContent);
+      setCloudSyncState("synced");
+      setCloudSyncMessage("Cloud snapshot ready.");
     };
+    applyCloudContentRef.current = applyCloudContent;
 
     const ensureInitialContent = () => {
-      if (!initialContent || yText.length > 0) {
-        if (yText.length > 0) {
-          lastCloudContentRef.current = yText.toString();
-          setCode(yText.toString());
+      if (hasSeededInitialContentRef.current) {
+        return;
+      }
+
+      hasSeededInitialContentRef.current = true;
+
+      if (yText.length > 0) {
+        const nextContent = yText.toString();
+        setCode(nextContent);
+        if (nextContent === lastCloudContentRef.current) {
+          setCloudSyncState("synced");
+          setCloudSyncMessage("Cloud snapshot ready.");
+        } else {
+          setCloudSyncState("dirty");
+          setCloudSyncMessage("Local collaborative changes are not pushed yet.");
         }
         return;
       }
@@ -285,7 +316,14 @@ function EditorWithYjs({
         return;
       }
 
-      syncTextToCloud(nextContent);
+      if (nextContent === lastCloudContentRef.current) {
+        setCloudSyncState("synced");
+        setCloudSyncMessage("Cloud snapshot ready.");
+        return;
+      }
+
+      setCloudSyncState("dirty");
+      setCloudSyncMessage("Local collaborative changes are not pushed yet.");
     };
 
     const handleProviderSync = (isSynced: boolean) => {
@@ -301,12 +339,9 @@ function EditorWithYjs({
     return () => {
       yText.unobserve(handleYTextChange);
       provider.off("sync", handleProviderSync);
-      if (cloudPersistTimeoutRef.current) {
-        window.clearTimeout(cloudPersistTimeoutRef.current);
-        cloudPersistTimeoutRef.current = null;
-      }
+      applyCloudContentRef.current = () => {};
     };
-  }, [documentId, initialContent, yjsState]);
+  }, [initialContent, yjsState]);
 
   const handleEditorMount: OnMount = useCallback((editorInstance) => {
     setEditor(editorInstance);
@@ -331,6 +366,83 @@ function EditorWithYjs({
     },
     [handleCodeChange]
   );
+
+  const handlePushToCloud = useCallback(async () => {
+    if (!yjsState) {
+      setCloudSyncState("error");
+      setCloudSyncMessage("Editor sync is still connecting.");
+      return;
+    }
+
+    const nextContent = editor?.getValue() ?? code;
+    if (nextContent === lastCloudContentRef.current) {
+      setCloudSyncState("synced");
+      setCloudSyncMessage("Nothing new to push.");
+      return;
+    }
+
+    setCloudSyncState("pushing");
+    setCloudSyncMessage("Pushing local changes to the cloud...");
+
+    try {
+      await pushDocumentContent(
+        documentId,
+        nextContent,
+        lastCloudContentRef.current
+      );
+      lastCloudContentRef.current = nextContent;
+      setCloudSyncState("synced");
+      setCloudSyncMessage("Cloud snapshot updated.");
+      onSnapshotChange?.(nextContent);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setCloudSyncState("conflict");
+        setCloudSyncMessage("Remote snapshot changed. Pull before pushing again.");
+        return;
+      }
+
+      setCloudSyncState("error");
+      setCloudSyncMessage(
+        err instanceof Error ? err.message : "Failed to push changes to the cloud."
+      );
+    }
+  }, [code, documentId, editor, onSnapshotChange, yjsState]);
+
+  const handlePullFromCloud = useCallback(async () => {
+    if (!yjsState) {
+      setCloudSyncState("error");
+      setCloudSyncMessage("Editor sync is still connecting.");
+      return;
+    }
+
+    const currentContent = editor?.getValue() ?? code;
+    if (
+      currentContent !== lastCloudContentRef.current &&
+      !window.confirm(
+        "Pulling will replace your local editor changes with the cloud snapshot. Continue?"
+      )
+    ) {
+      return;
+    }
+
+    setCloudSyncState("pulling");
+    setCloudSyncMessage("Pulling the latest cloud snapshot...");
+
+    try {
+      const { content } = await pullDocumentContent(documentId);
+      hasSeededInitialContentRef.current = true;
+      applyCloudContentRef.current(content);
+      lastCloudContentRef.current = content;
+      setCloudSyncState("synced");
+      setCloudSyncMessage("Cloud snapshot pulled.");
+      onSnapshotChange?.(content);
+    } catch (err) {
+      setCloudSyncState("error");
+      setCloudSyncMessage(
+        err instanceof Error ? err.message : "Failed to pull changes from the cloud."
+      );
+    }
+  }, [code, documentId, editor, onSnapshotChange, yjsState]);
 
   const handleRunCode = useCallback(() => {
     const currentCode = editor?.getValue() ?? code;
@@ -444,6 +556,31 @@ function EditorWithYjs({
   // Determine terminal content: execution output takes priority when running/has output
   const hasExecutionOutput = execution.output || execution.error;
   const showExecutionOutput = execution.isRunning || hasExecutionOutput;
+  const isSyncReady = Boolean(yjsState);
+  const isSyncBusy =
+    cloudSyncState === "pushing" || cloudSyncState === "pulling";
+  const cloudSyncAccent =
+    cloudSyncState === "synced"
+      ? "#34d399"
+      : cloudSyncState === "dirty"
+        ? "#fbbf24"
+        : cloudSyncState === "conflict"
+          ? "#f97316"
+          : cloudSyncState === "error"
+            ? "#f87171"
+            : "#60a5fa";
+  const cloudSyncLabel =
+    cloudSyncState === "synced"
+      ? "Cloud synced"
+      : cloudSyncState === "dirty"
+        ? "Local changes"
+        : cloudSyncState === "conflict"
+          ? "Pull required"
+          : cloudSyncState === "error"
+            ? "Sync error"
+            : cloudSyncState === "pushing"
+              ? "Pushing"
+              : "Pulling";
 
   return (
     <div className={styles.workspace}>
@@ -485,8 +622,65 @@ function EditorWithYjs({
                 <span>LATENCY:</span>
                 <strong className={styles.secondaryText}>~14ms</strong>
               </div>
+              <div className={styles.bannerMetric} title={cloudSyncMessage}>
+                <span>SYNC:</span>
+                <strong style={{ color: cloudSyncAccent }}>{cloudSyncLabel}</strong>
+              </div>
             </div>
             <div className={styles.statusRight}>
+              <button
+                type="button"
+                onClick={handlePullFromCloud}
+                disabled={!isSyncReady || isSyncBusy}
+                className={styles.deployButton}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  background: "#1e293b",
+                  color: "#e2e8f0",
+                  opacity: !isSyncReady || isSyncBusy ? 0.6 : 1,
+                  cursor: !isSyncReady || isSyncBusy ? "not-allowed" : "pointer",
+                }}
+                title={cloudSyncMessage}
+              >
+                <span className={styles.icon} style={{ fontSize: "16px" }}>
+                  {cloudSyncState === "pulling" ? "sync" : "download"}
+                </span>
+                {cloudSyncState === "pulling" ? "Pulling..." : "Pull"}
+              </button>
+              <button
+                type="button"
+                onClick={handlePushToCloud}
+                disabled={!isSyncReady || isSyncBusy || cloudSyncState === "synced"}
+                className={styles.deployButton}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  background:
+                    cloudSyncState === "conflict"
+                      ? "#9a3412"
+                      : cloudSyncState === "dirty"
+                        ? "#2563eb"
+                        : "#0f766e",
+                  color: "#f8fafc",
+                  opacity:
+                    !isSyncReady || isSyncBusy || cloudSyncState === "synced"
+                      ? 0.6
+                      : 1,
+                  cursor:
+                    !isSyncReady || isSyncBusy || cloudSyncState === "synced"
+                      ? "not-allowed"
+                      : "pointer",
+                }}
+                title={cloudSyncMessage}
+              >
+                <span className={styles.icon} style={{ fontSize: "16px" }}>
+                  {cloudSyncState === "pushing" ? "sync" : "upload"}
+                </span>
+                {cloudSyncState === "pushing" ? "Pushing..." : "Push"}
+              </button>
               <button
                 type="button"
                 onClick={handleRunCode}

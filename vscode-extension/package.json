@@ -31,6 +31,11 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "itecify.pushCode",
+        "title": "iTECify: Push Code to Cloud",
+        "icon": "$(cloud-upload)"
+      },
+      {
         "command": "itecify.connectWorkspace",
         "title": "iTECify: Connect Workspace",
         "icon": "$(plug)"
@@ -52,6 +57,16 @@
           "command": "itecify.runCloudExecution",
           "group": "navigation",
           "when": "resourceLangId == python || resourceLangId == javascript || resourceLangId == javascriptreact"
+        },
+        {
+          "command": "itecify.pushCode",
+          "group": "navigation@1",
+          "when": "resourceScheme == file"
+        },
+        {
+          "command": "itecify.pullCode",
+          "group": "navigation@2",
+          "when": "resourceScheme == file"
         }
       ]
     },
@@ -64,14 +79,7 @@
           "description": "Base URL for the iTECify FastAPI backend."
         }
       }
-    },
-    "keybindings": [
-      {
-        "command": "itecify.pullCode",
-        "key": "shift+enter",
-        "when": "editorTextFocus"
-      }
-    ]
+    }
   },
   "scripts": {
     "compile": "tsc -p ./",

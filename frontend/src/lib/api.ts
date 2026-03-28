@@ -195,11 +195,16 @@ export type DocumentSyncPullResponse = {
 export async function pushDocumentContent(
     documentId: string,
     content: string,
+    baseContent?: string,
     init?: RequestInit
 ): Promise<{ status: string; document_id: string }> {
     return fetchJson<{ status: string; document_id: string }>("/api/docs/sync/push", {
         method: "POST",
-        body: JSON.stringify({ document_id: documentId, content }),
+        body: JSON.stringify({
+            document_id: documentId,
+            content,
+            ...(typeof baseContent === "string" ? { base_content: baseContent } : {}),
+        }),
         ...init,
     });
 }
