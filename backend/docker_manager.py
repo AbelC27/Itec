@@ -6,6 +6,7 @@ import time
 import docker
 
 from schemas import LANGUAGE_IMAGES, SendCallback
+from ai_analyzer import analyze
 
 
 class DockerIsolationManager:
@@ -41,15 +42,21 @@ class DockerIsolationManager:
 
         command = self._build_command(language, code)
 
+        # AI Analysis Phase: estimate resource limits before container creation
+        await send("status", "[AI] Scanning code for resource allocation...")
+        estimate = await analyze(code)
+        cpu_display = estimate.nano_cpus / 1_000_000_000
+        await send("status", f"[AI] Allocated {estimate.mem_limit} RAM and {cpu_display} CPU.")
+
         container = None
         try:
-            # Task 4.6: Create container with all security constraints
+            # Create container with AI-determined resource limits
             container = await asyncio.to_thread(
                 self.client.containers.create,
                 image=image,
                 command=command,
-                mem_limit=self.MEMORY_LIMIT,
-                nano_cpus=self.CPU_NANO_LIMIT,
+                mem_limit=estimate.mem_limit,
+                nano_cpus=estimate.nano_cpus,
                 network_disabled=self.NETWORK_DISABLED,
                 read_only=True,
                 security_opt=["no-new-privileges"],
