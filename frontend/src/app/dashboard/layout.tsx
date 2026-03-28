@@ -1,14 +1,30 @@
 "use client";
 
-import { useRouter, usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/providers/auth-provider";
-import { useEffect, useState } from "react";
 import type { Profile } from "@/types/database";
 
-const navItems = [
-  { label: "Home", href: "/dashboard", icon: HomeIcon },
-  { label: "Projects", href: "/dashboard/projects", icon: ProjectsIcon },
+const topNavItems = [
+  { label: "FILES", href: "/dashboard" },
+  { label: "EDIT", href: "#" },
+  { label: "SELECTION", href: "#" },
+  { label: "VIEW", href: "#" },
+];
+
+const sideNavIcons = [
+  { icon: "grid_view", href: "/dashboard", label: "Dashboard" },
+  { icon: "code", href: "/workspace", label: "Workspace" },
+  { icon: "terminal", href: "#", label: "Terminal" },
+  { icon: "folder_open", href: "#", label: "Files" },
+  { icon: "settings", href: "#", label: "Settings" },
+];
+
+const bottomNavIcons = [
+  { icon: "tv_gen", href: "#", label: "Preview" },
+  { icon: "info", href: "#", label: "Info" },
+  { icon: "smart_toy", href: "#", label: "AI" },
 ];
 
 export default function DashboardLayout({
@@ -43,118 +59,133 @@ export default function DashboardLayout({
     router.push("/");
   }
 
+  function handleNavClick(href: string) {
+    if (href === "#") return;
+    router.push(href);
+  }
+
+  const avatarInitial = (profile?.username ?? user?.email ?? "?")[0]?.toUpperCase();
+
   return (
-    <div className="flex h-screen">
-      {/* Sidebar */}
-      <aside
-        className="flex flex-col w-60 border-r"
-        style={{
-          backgroundColor: "var(--surface)",
-          borderColor: "var(--border)",
-        }}
-      >
-        {/* Logo */}
-        <div className="px-4 py-5 border-b" style={{ borderColor: "var(--border)" }}>
-          <span className="text-lg font-semibold" style={{ color: "var(--foreground)" }}>
-            iTECify
+    <div className="aether-theme bg-[#050d1a] text-on-surface min-h-screen">
+      {/* ═══ TOP NAV BAR ═══ */}
+      <nav className="bg-[#080f1e]/90 backdrop-blur-xl text-slate-200 font-manrope tracking-tight text-xs w-full top-0 z-50 flex justify-between items-center px-4 py-2.5 fixed border-b border-white/5">
+        <div className="flex items-center gap-6">
+          {/* Brand */}
+          <span className="text-sm font-black text-cyan-400 tracking-[0.15em] uppercase">
+            Architect_IDE
           </span>
+          {/* Menu Items */}
+          <div className="hidden md:flex gap-1">
+            {topNavItems.map((item) => {
+              const isActive = item.href !== "#" && pathname === item.href;
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => handleNavClick(item.href)}
+                  className={
+                    isActive
+                      ? "text-cyan-400 font-bold px-3 py-1.5 rounded-md transition-colors duration-200 uppercase tracking-wider text-[10px]"
+                      : "text-slate-500 hover:text-slate-300 hover:bg-white/5 px-3 py-1.5 rounded-md transition-colors duration-200 uppercase tracking-wider text-[10px]"
+                  }
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href;
+        {/* Search Bar */}
+        <div className="hidden lg:flex items-center bg-white/5 rounded-lg px-3 py-1.5 border border-white/5 w-64">
+          <span className="material-symbols-outlined text-slate-500 text-sm mr-2">search</span>
+          <span className="text-[10px] text-slate-500">Search commands...</span>
+        </div>
+
+        {/* Right Actions */}
+        <div className="flex items-center gap-3">
+          <button className="text-slate-500 hover:text-white transition-colors" type="button">
+            <span className="material-symbols-outlined text-lg">settings</span>
+          </button>
+          <button className="text-slate-500 hover:text-white transition-colors relative" type="button">
+            <span className="material-symbols-outlined text-lg">notifications</span>
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-cyan-400 rounded-full" />
+          </button>
+          <button
+            className="bg-cyan-400 hover:bg-cyan-300 text-[#050d1a] px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-[0.15em] transition-all hover:shadow-[0_0_15px_rgba(0,240,255,0.3)]"
+            type="button"
+          >
+            Deploy
+          </button>
+          <div
+            className="w-7 h-7 rounded-full border border-cyan-500/30 flex items-center justify-center text-[9px] font-bold text-cyan-400 cursor-pointer"
+            style={{ backgroundColor: profile?.avatar_color_hex ?? "#0a1628" }}
+            aria-label="User profile"
+          >
+            {avatarInitial}
+          </div>
+        </div>
+      </nav>
+
+      {/* ═══ SLIM ICON SIDEBAR ═══ */}
+      <aside className="bg-[#080f1e]/90 backdrop-blur-2xl w-14 left-0 top-0 fixed hidden lg:flex flex-col items-center py-14 border-r border-white/5 z-40 h-screen">
+        {/* Brand Icon */}
+        <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center mb-8">
+          <span className="text-cyan-400 font-black text-sm">A</span>
+        </div>
+
+        {/* Main Nav Icons */}
+        <nav className="flex-1 flex flex-col items-center gap-1">
+          {sideNavIcons.map((item) => {
+            const isActive = item.href !== "#" && pathname === item.href;
             return (
               <button
-                key={item.href}
-                onClick={() => router.push(item.href)}
-                className="flex items-center gap-3 w-full px-3 py-2 text-sm transition-colors"
-                style={{
-                  borderRadius: "var(--radius-input)",
-                  color: isActive ? "var(--foreground)" : "var(--text-secondary)",
-                  backgroundColor: isActive ? "var(--border)" : "transparent",
-                }}
+                key={item.label}
+                type="button"
+                onClick={() => handleNavClick(item.href)}
+                title={item.label}
+                className={
+                  isActive
+                    ? "w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center text-cyan-400 transition-all duration-200"
+                    : "w-10 h-10 rounded-lg flex items-center justify-center text-slate-600 hover:text-slate-300 hover:bg-white/5 transition-all duration-200"
+                }
               >
-                <item.icon />
-                {item.label}
+                <span className="material-symbols-outlined text-lg">{item.icon}</span>
               </button>
             );
           })}
         </nav>
 
-        {/* User profile section */}
-        <div
-          className="px-3 py-4 border-t"
-          style={{ borderColor: "var(--border)" }}
-        >
-          <div className="flex items-center gap-3 px-3 py-2">
-            {/* Avatar circle */}
-            <div
-              className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-medium"
-              style={{
-                backgroundColor: profile?.avatar_color_hex ?? "var(--accent)",
-                color: "#ffffff",
-              }}
+        {/* Bottom Icons */}
+        <div className="flex flex-col items-center gap-1 mt-auto">
+          {bottomNavIcons.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => handleNavClick(item.href)}
+              title={item.label}
+              className="w-10 h-10 rounded-lg flex items-center justify-center text-slate-600 hover:text-slate-300 hover:bg-white/5 transition-all duration-200"
             >
-              {(profile?.username ?? user?.email ?? "?")[0].toUpperCase()}
-            </div>
-            <span
-              className="text-sm truncate"
-              style={{ color: "var(--foreground)" }}
-            >
-              {profile?.username ?? user?.email ?? "User"}
-            </span>
-          </div>
+              <span className="material-symbols-outlined text-lg">{item.icon}</span>
+            </button>
+          ))}
           <button
             onClick={handleSignOut}
             disabled={isLoggingOut}
-            className="flex items-center gap-2 w-full px-3 py-2 mt-1 text-sm transition-colors cursor-pointer disabled:opacity-50"
-            style={{
-              borderRadius: "var(--radius-input)",
-              color: "var(--text-secondary)",
-            }}
+            title={isLoggingOut ? "Logging out..." : "Log Out"}
+            className="w-10 h-10 rounded-lg flex items-center justify-center text-slate-600 hover:text-red-400 hover:bg-red-500/5 transition-all duration-200 disabled:opacity-50"
+            type="button"
           >
-            {isLoggingOut ? "Logging out…" : "Log Out"}
+            <span className="material-symbols-outlined text-lg">logout</span>
           </button>
         </div>
       </aside>
 
-      {/* Main content */}
-      <main
-        className="flex-1 overflow-y-auto p-8"
-        style={{ backgroundColor: "var(--background)" }}
-      >
-        {children}
+      {/* ═══ MAIN CONTENT CANVAS ═══ */}
+      <main className="lg:ml-14 pt-12 pb-12 px-5 lg:px-8">
+        <div className="max-w-7xl mx-auto">{children}</div>
       </main>
     </div>
-  );
-}
-
-function HomeIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M2 6L8 1.5L14 6V13.5C14 13.7652 13.8946 14.0196 13.7071 14.2071C13.5196 14.3946 13.2652 14.5 13 14.5H3C2.73478 14.5 2.48043 14.3946 2.29289 14.2071C2.10536 14.0196 2 13.7652 2 13.5V6Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M6 14.5V8H10V14.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ProjectsIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M14 10V13C14 13.2652 13.8946 13.5196 13.7071 13.7071C13.5196 13.8946 13.2652 14 13 14H3C2.73478 14 2.48043 13.8946 2.29289 13.7071C2.10536 13.5196 2 13.2652 2 13V3C2 2.73478 2.10536 2.48043 2.29289 2.29289C2.48043 2.10536 2.73478 2 3 2H6L7.5 4H13C13.2652 4 13.5196 4.10536 13.7071 4.29289C13.8946 4.48043 14 4.73478 14 5V10Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }
