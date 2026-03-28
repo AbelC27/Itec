@@ -239,6 +239,16 @@ function EditorWithYjs({
     const model = editor.getModel();
     if (!model) return;
 
+    // Tear down any existing binding first to prevent duplicates on HMR
+    if (bindingRef.current) {
+      try {
+        bindingRef.current.destroy();
+      } catch {
+        // Ignore teardown errors
+      }
+      bindingRef.current = null;
+    }
+
     const binding = new MonacoBinding(
       yText,
       model,
@@ -567,9 +577,9 @@ function EditorWithYjs({
     cloudSyncState === "synced"
       ? "#34d399"
       : cloudSyncState === "dirty"
-        ? "#fbbf24"
+        ? "#60a5fa"
         : cloudSyncState === "conflict"
-          ? "#f97316"
+          ? "#60a5fa"
           : cloudSyncState === "error"
             ? "#f87171"
             : "#60a5fa";
@@ -648,7 +658,7 @@ function EditorWithYjs({
                 disabled={!isSyncReady || isSyncBusy || cloudSyncState === "synced"}
                 className={`flex items-center gap-1.5 border-none rounded-lg px-4 py-2 text-[11px] uppercase tracking-widest font-extrabold text-slate-50 cursor-pointer transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed ${
                   cloudSyncState === "conflict"
-                    ? "bg-orange-800 hover:bg-orange-700"
+                    ? "bg-blue-700 hover:bg-blue-600"
                     : cloudSyncState === "dirty"
                       ? "bg-blue-600 hover:bg-blue-500"
                       : "bg-teal-700 hover:bg-teal-600"

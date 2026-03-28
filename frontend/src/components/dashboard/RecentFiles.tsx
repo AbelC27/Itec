@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 
 const LANGUAGE_COLORS: Record<string, string> = {
     python: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-    javascript: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+    javascript: "bg-blue-500/20 text-blue-300 border-blue-500/30",
     typescript: "bg-blue-500/20 text-blue-300 border-blue-500/30",
 };
 
