@@ -1,0 +1,43 @@
+{
+  "name": "itecify-vscode",
+  "displayName": "iTECify",
+  "description": "Execute code in iTECify cloud environment",
+  "version": "0.1.0",
+  "publisher": "itecify",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "itecify.runCloudExecution",
+        "title": "iTECify: Run Code in Cloud",
+        "icon": "$(play)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "itecify.runCloudExecution",
+          "group": "navigation",
+          "when": "resourceLangId == python || resourceLangId == javascript || resourceLangId == javascriptreact"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.14",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.7.0"
+  }
+}
