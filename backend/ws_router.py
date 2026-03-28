@@ -12,6 +12,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class ConnectionManager:
+    def __init__(self) -> None:
+        self.active_connections: dict[str, list[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, document_id: str) -> None:
+        await websocket.accept()
+        if document_id not in self.active_connections:
+            self.active_connections[document_id] = []
+        self.active_connections[document_id].append(websocket)
+
+    def disconnect(self, websocket: WebSocket, document_id: str) -> None:
+        if document_id in self.active_connections:
+            self.active_connections[document_id].remove(websocket)
+            if not self.active_connections[document_id]:
+                del self.active_connections[document_id]
+
+    async def broadcast(self, message: dict, document_id: str) -> None:
+        connections = self.active_connections.get(document_id, [])
+        for connection in connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                pass
+
+
+manager = ConnectionManager()
+
+
 async def save_execution(
     document_id: str,
     language: str,
@@ -41,35 +69,34 @@ async def save_execution(
         logger.error("Failed to save execution history: %s", exc)
 
 
-@router.websocket("/ws/execute")
-async def execute_code_ws(websocket: WebSocket) -> None:
+@router.websocket("/ws/execute/{document_id}")
+async def execute_code_ws(websocket: WebSocket, document_id: str) -> None:
     """
-    WebSocket endpoint for streaming code execution.
+    WebSocket endpoint for streaming code execution with room-based broadcast.
 
     Protocol:
-    1. Client connects
-    2. Client sends JSON: {"language": "python", "code": "print('hi')", "document_id": "abc-123"}
-    3. Server streams back messages (stdout, stderr, complete, error)
-    4. Server closes connection after completion or error
+    1. Client connects to /ws/execute/{document_id} (document_id from URL path)
+    2. Client sends JSON: {"language": "python", "code": "print('hi')"}
+    3. Server broadcasts messages (stdout, stderr, complete, error) to all room members
+    4. Connection is removed from room on disconnect or error
     """
-    await websocket.accept()
+    await manager.connect(websocket, document_id)
     try:
         raw = await websocket.receive_text()
         try:
             message = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
-            await websocket.send_json({"type": "error", "data": "Invalid request"})
+            await manager.broadcast({"type": "error", "data": "Invalid request"}, document_id)
             return
 
         language = message.get("language", "")
         code = message.get("code", "")
-        document_id = message.get("document_id", "")
 
         if not language or not code or len(code) > 50_000:
-            await websocket.send_json({"type": "error", "data": "Invalid request"})
+            await manager.broadcast({"type": "error", "data": "Invalid request"}, document_id)
             return
 
-        # Accumulating callback: buffers stdout/stderr while forwarding to client
+        # Accumulating callback: buffers stdout/stderr while broadcasting to room
         stdout_buf: list[str] = []
         stderr_buf: list[str] = []
         execution_metadata: dict = {}
@@ -81,10 +108,10 @@ async def execute_code_ws(websocket: WebSocket) -> None:
                 stderr_buf.append(data)
             elif msg_type == "complete":
                 execution_metadata["execution_time"] = data.get("execution_time", 0.0)
-            await websocket.send_json({"type": msg_type, "data": data})
+            await manager.broadcast({"type": msg_type, "data": data}, document_id)
 
-        manager = DockerIsolationManager()
-        estimate = await manager.execute_streaming(language, code, accumulating_send)
+        docker_mgr = DockerIsolationManager()
+        estimate = await docker_mgr.execute_streaming(language, code, accumulating_send)
 
         # Fire-and-forget DB insert (only if document_id provided and execution completed)
         if document_id and estimate and "execution_time" in execution_metadata:
@@ -103,13 +130,11 @@ async def execute_code_ws(websocket: WebSocket) -> None:
         pass
     except Exception:
         try:
-            await websocket.send_json(
-                {"type": "error", "data": "Internal server error"}
+            await manager.broadcast(
+                {"type": "error", "data": "Internal server error"},
+                document_id,
             )
         except Exception:
             pass
     finally:
-        try:
-            await websocket.close()
-        except Exception:
-            pass
+        manager.disconnect(websocket, document_id)
