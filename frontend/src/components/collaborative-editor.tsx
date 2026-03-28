@@ -7,13 +7,20 @@ import { useProfile } from "@/hooks/useProfile";
 import { useYjsSupabase } from "@/hooks/useYjsSupabase";
 import { useExecution } from "@/hooks/useExecution";
 import { useHistory } from "@/hooks/useHistory";
-import { getWsBaseUrl, sendAiChat, ApiError } from "../lib/api";
+import {
+  getWsBaseUrl,
+  sendAiChat,
+  ApiError,
+  pullDocumentContent,
+  pushDocumentContent,
+} from "../lib/api";
 import type * as monaco from "monaco-editor";
 import styles from "./collaborative-editor.module.css";
 
 interface CollaborativeEditorProps {
   documentId: string;
   language?: string;
+  initialContent?: string;
 }
 
 type WsMessage =
@@ -30,6 +37,7 @@ type ChatMessage = {
 export default function CollaborativeEditor({
   documentId,
   language = "python",
+  initialContent = "",
 }: CollaborativeEditorProps) {
   const { profile, isLoading } = useProfile();
 
@@ -41,20 +49,32 @@ export default function CollaborativeEditor({
     );
   }
 
-  return <EditorWithYjs documentId={documentId} profile={profile} language={language} />;
+  return (
+    <EditorWithYjs
+      documentId={documentId}
+      profile={profile}
+      language={language}
+      initialContent={initialContent}
+    />
+  );
 }
 
 function EditorWithYjs({
   documentId,
   profile,
   language,
+  initialContent,
 }: {
   documentId: string;
   profile: { id: string; username: string; avatar_color_hex: string };
   language: string;
+  initialContent: string;
 }) {
   const yjsState = useYjsSupabase(documentId, profile);
   const bindingRef = useRef<MonacoBinding | null>(null);
+  const cloudPersistTimeoutRef = useRef<number | null>(null);
+  const lastCloudContentRef = useRef(initialContent);
+  const isApplyingCloudContentRef = useRef(false);
   const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [code, setCode] = useState("");
@@ -83,6 +103,10 @@ function EditorWithYjs({
     })();
   }, [execution.easterEggTriggered]);
 
+  useEffect(() => {
+    lastCloudContentRef.current = initialContent;
+  }, [initialContent]);
+
   // Create binding when BOTH editor and yjsState are ready
   // Recreate when either changes
   useEffect(() => {
@@ -98,13 +122,11 @@ function EditorWithYjs({
       new Set([editor]),
       yjsState.awareness
     );
-    const yDoc = yjsState.yDoc;
     bindingRef.current = binding;
 
     return () => {
       if (bindingRef.current !== binding) return;
       bindingRef.current = null;
-      if (yDoc.destroyed) return;
       try {
         binding.destroy();
       } catch {
@@ -112,6 +134,110 @@ function EditorWithYjs({
       }
     };
   }, [yjsState, editor]);
+
+  useEffect(() => {
+    if (!yjsState) return;
+
+    const provider = yjsState.provider;
+    const yDoc = yjsState.yDoc;
+    const yText = yDoc.getText("content");
+
+    const syncTextToCloud = (nextContent: string) => {
+      if (cloudPersistTimeoutRef.current) {
+        window.clearTimeout(cloudPersistTimeoutRef.current);
+      }
+
+      cloudPersistTimeoutRef.current = window.setTimeout(() => {
+        void pushDocumentContent(documentId, nextContent)
+          .then(() => {
+            lastCloudContentRef.current = nextContent;
+          })
+          .catch(() => {
+            // Keep editing responsive; the extension/app can retry on the next change or poll cycle.
+          });
+      }, 350);
+    };
+
+    const applyCloudContent = (nextContent: string) => {
+      if (nextContent === yText.toString()) {
+        lastCloudContentRef.current = nextContent;
+        return;
+      }
+
+      isApplyingCloudContentRef.current = true;
+      yDoc.transact(() => {
+        yText.delete(0, yText.length);
+        if (nextContent) {
+          yText.insert(0, nextContent);
+        }
+      }, "cloud-sync");
+      isApplyingCloudContentRef.current = false;
+      lastCloudContentRef.current = nextContent;
+      setCode(nextContent);
+    };
+
+    const ensureInitialContent = () => {
+      if (!initialContent || yText.length > 0) {
+        if (yText.length > 0) {
+          lastCloudContentRef.current = yText.toString();
+          setCode(yText.toString());
+        }
+        return;
+      }
+
+      applyCloudContent(initialContent);
+    };
+
+    const handleYTextChange = () => {
+      const nextContent = yText.toString();
+      setCode(nextContent);
+
+      if (isApplyingCloudContentRef.current) {
+        return;
+      }
+
+      syncTextToCloud(nextContent);
+    };
+
+    const handleProviderSync = (isSynced: boolean) => {
+      if (isSynced) {
+        ensureInitialContent();
+      }
+    };
+
+    yText.observe(handleYTextChange);
+    provider.on("sync", handleProviderSync);
+    ensureInitialContent();
+
+    const pollHandle = window.setInterval(() => {
+      void pullDocumentContent(documentId)
+        .then((response) => {
+          const remoteContent = response.content ?? "";
+          if (remoteContent === lastCloudContentRef.current && remoteContent === yText.toString()) {
+            return;
+          }
+
+          if (remoteContent !== yText.toString()) {
+            applyCloudContent(remoteContent);
+          } else {
+            lastCloudContentRef.current = remoteContent;
+          }
+        })
+        .catch(() => {
+          // Ignore transient fetch errors; local editing should continue.
+        });
+    }, 2500);
+
+    return () => {
+      yText.unobserve(handleYTextChange);
+      provider.off("sync", handleProviderSync);
+      window.clearInterval(pollHandle);
+      if (cloudPersistTimeoutRef.current) {
+        window.clearTimeout(cloudPersistTimeoutRef.current);
+        cloudPersistTimeoutRef.current = null;
+      }
+    };
+  }, [documentId, initialContent, yjsState]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -270,12 +396,6 @@ function EditorWithYjs({
     },
     [handleSendChat]
   );
-
-  const connectionText = !yjsState
-    ? "Initializing..."
-    : yjsState.isConnected
-      ? `Connected — Room: itecity-${documentId}`
-      : "Disconnected — waiting for server on ws://localhost:4444";
 
   // Determine terminal content: execution output takes priority when running/has output
   const hasExecutionOutput = execution.output || execution.error;

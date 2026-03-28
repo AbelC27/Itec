@@ -187,6 +187,33 @@ export async function getDocumentHistory(
     );
 }
 
+export type DocumentSyncPullResponse = {
+    document_id: string;
+    content: string;
+};
+
+export async function pushDocumentContent(
+    documentId: string,
+    content: string,
+    init?: RequestInit
+): Promise<{ status: string; document_id: string }> {
+    return fetchJson<{ status: string; document_id: string }>("/api/docs/sync/push", {
+        method: "POST",
+        body: JSON.stringify({ document_id: documentId, content }),
+        ...init,
+    });
+}
+
+export async function pullDocumentContent(
+    documentId: string,
+    init?: RequestInit
+): Promise<DocumentSyncPullResponse> {
+    return fetchJson<DocumentSyncPullResponse>(
+        `/api/docs/sync/pull?id=${encodeURIComponent(documentId)}`,
+        init
+    );
+}
+
 export type ExplainErrorRequest = {
     language: string;
     code: string;

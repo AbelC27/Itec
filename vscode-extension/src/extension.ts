@@ -1,31 +1,126 @@
 import * as vscode from "vscode";
 import { executeCode, LANGUAGE_MAP } from "./executionHandler";
 
-const BACKEND_BASE_URL = "http://localhost:8000";
+const DEFAULT_BACKEND_BASE_URL = "http://localhost:8000";
 const DOCUMENT_ID_KEY = "itecify.documentId";
+const CONNECTION_KEY = "itecify.connection";
+const PUSH_DEBOUNCE_MS = 200;
+
+type WorkspaceConnection = {
+  documentId: string;
+  title?: string;
+  backendBaseUrl?: string;
+  connectedAt: string;
+};
 
 let isExecuting = false;
 let didWarnMissingDocumentId = false;
 let didWarnSyncFailure = false;
 let isApplyingPull = false;
 let pushDebounceHandle: NodeJS.Timeout | undefined;
-const PUSH_DEBOUNCE_MS = 200;
+
+function normalizeBaseUrl(value: string | undefined): string {
+  return (value || DEFAULT_BACKEND_BASE_URL).trim().replace(/\/+$/, "");
+}
 
 function detectLanguage(editor: vscode.TextEditor): string | undefined {
   return LANGUAGE_MAP[editor.document.languageId];
 }
 
+function getConfiguredBackendBaseUrl(): string {
+  const configured = vscode.workspace
+    .getConfiguration("itecify")
+    .get<string>("backendBaseUrl", DEFAULT_BACKEND_BASE_URL);
+  return normalizeBaseUrl(configured);
+}
+
+function getStoredConnection(
+  context: vscode.ExtensionContext
+): WorkspaceConnection | undefined {
+  return context.globalState.get<WorkspaceConnection>(CONNECTION_KEY);
+}
+
 function getStoredDocumentId(
   context: vscode.ExtensionContext
 ): string | undefined {
-  return context.globalState.get<string>(DOCUMENT_ID_KEY);
+  return (
+    getStoredConnection(context)?.documentId ??
+    context.globalState.get<string>(DOCUMENT_ID_KEY)
+  );
+}
+
+function getBackendBaseUrl(context: vscode.ExtensionContext): string {
+  return normalizeBaseUrl(
+    getStoredConnection(context)?.backendBaseUrl ?? getConfiguredBackendBaseUrl()
+  );
+}
+
+async function setStoredConnection(
+  context: vscode.ExtensionContext,
+  connection: Omit<WorkspaceConnection, "connectedAt"> & { connectedAt?: string }
+): Promise<void> {
+  const normalized: WorkspaceConnection = {
+    documentId: connection.documentId.trim(),
+    title: connection.title?.trim() || undefined,
+    backendBaseUrl: connection.backendBaseUrl
+      ? normalizeBaseUrl(connection.backendBaseUrl)
+      : undefined,
+    connectedAt: connection.connectedAt ?? new Date().toISOString(),
+  };
+
+  await context.globalState.update(CONNECTION_KEY, normalized);
+  await context.globalState.update(DOCUMENT_ID_KEY, normalized.documentId);
+}
+
+async function clearStoredConnection(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  await context.globalState.update(CONNECTION_KEY, undefined);
+  await context.globalState.update(DOCUMENT_ID_KEY, undefined);
 }
 
 async function setStoredDocumentId(
   context: vscode.ExtensionContext,
   documentId: string
 ): Promise<void> {
+  const existing = getStoredConnection(context);
+  if (existing) {
+    await setStoredConnection(context, { ...existing, documentId });
+    return;
+  }
+
   await context.globalState.update(DOCUMENT_ID_KEY, documentId);
+}
+
+function updateConnectionStatusBar(
+  statusBar: vscode.StatusBarItem,
+  context: vscode.ExtensionContext
+): void {
+  const connection = getStoredConnection(context);
+  const legacyDocumentId = context.globalState.get<string>(DOCUMENT_ID_KEY);
+  if (!connection) {
+    if (legacyDocumentId) {
+      statusBar.text = `$(plug) ${legacyDocumentId.slice(0, 8)}`;
+      statusBar.tooltip = [
+        `iTECify workspace linked to ${legacyDocumentId}`,
+        `Backend: ${getConfiguredBackendBaseUrl()}`,
+        "Use Connect iTECify to relink from the web app.",
+      ].join("\n");
+      return;
+    }
+
+    statusBar.text = "$(plug) Connect iTECify";
+    statusBar.tooltip = "iTECify: Link the current VS Code window to a workspace";
+    return;
+  }
+
+  const label = connection.title || connection.documentId.slice(0, 8);
+  statusBar.text = `$(plug) ${label}`;
+  statusBar.tooltip = [
+    `iTECify workspace linked to ${connection.documentId}`,
+    `Backend: ${getBackendBaseUrl(context)}`,
+    "Enter pushes to cloud. Shift+Enter pulls from cloud.",
+  ].join("\n");
 }
 
 async function promptForDocumentId(
@@ -38,12 +133,88 @@ async function promptForDocumentId(
     value: getStoredDocumentId(context),
   });
 
-  if (!documentId) {
+  if (!documentId?.trim()) {
     return undefined;
   }
 
-  await setStoredDocumentId(context, documentId);
-  return documentId;
+  await setStoredDocumentId(context, documentId.trim());
+  return documentId.trim();
+}
+
+async function resolveDocumentId(
+  context: vscode.ExtensionContext,
+  prompt: string
+): Promise<string | undefined> {
+  const existing = getStoredDocumentId(context);
+  if (existing) {
+    didWarnMissingDocumentId = false;
+    return existing;
+  }
+
+  return promptForDocumentId(context, prompt);
+}
+
+function parseConnectionUri(uri: vscode.Uri): {
+  documentId?: string;
+  title?: string;
+  backendBaseUrl?: string;
+} {
+  const params = new URLSearchParams(uri.query);
+  return {
+    documentId: params.get("documentId")?.trim() || undefined,
+    title: params.get("title")?.trim() || undefined,
+    backendBaseUrl: params.get("backendBaseUrl")?.trim() || undefined,
+  };
+}
+
+async function connectWorkspace(
+  context: vscode.ExtensionContext,
+  statusBar: vscode.StatusBarItem,
+  uri?: vscode.Uri
+): Promise<void> {
+  let documentId: string | undefined;
+  let title: string | undefined;
+  let backendBaseUrl: string | undefined;
+
+  if (uri) {
+    const parsed = parseConnectionUri(uri);
+    documentId = parsed.documentId;
+    title = parsed.title;
+    backendBaseUrl = parsed.backendBaseUrl;
+  } else {
+    documentId = await vscode.window.showInputBox({
+      prompt: "Enter the iTECify Document ID to link this editor",
+      placeHolder: "e.g. abc123-def456",
+      value: getStoredDocumentId(context),
+    });
+  }
+
+  if (!documentId?.trim()) {
+    if (!uri) {
+      vscode.window.showInformationMessage(
+        "iTECify: Connection cancelled. Open a workspace in the app and click Connect VS Code, or paste a Document ID here."
+      );
+    }
+    return;
+  }
+
+  await setStoredConnection(context, {
+    documentId: documentId.trim(),
+    title,
+    backendBaseUrl,
+  });
+
+  didWarnMissingDocumentId = false;
+  didWarnSyncFailure = false;
+  updateConnectionStatusBar(statusBar, context);
+
+  const linkedConnection = getStoredConnection(context);
+  const connectionLabel =
+    linkedConnection?.title || linkedConnection?.documentId || documentId.trim();
+
+  vscode.window.showInformationMessage(
+    `iTECify: Linked to ${connectionLabel}. Enter now pushes and Shift+Enter pulls.`
+  );
 }
 
 async function runCloudExecution(
@@ -77,7 +248,7 @@ async function runCloudExecution(
     return;
   }
 
-  const documentId = await promptForDocumentId(
+  const documentId = await resolveDocumentId(
     context,
     "Enter the iTECify Document ID"
   );
@@ -136,30 +307,45 @@ async function syncPushDocument(
     if (!didWarnMissingDocumentId) {
       didWarnMissingDocumentId = true;
       vscode.window.showInformationMessage(
-        "iTECify: Set a Document ID to enable cloud sync."
+        "iTECify: Link a workspace first so Enter can push code to the cloud."
       );
     }
     return;
   }
 
-  try {
-    const response = await fetch(`${BACKEND_BASE_URL}/api/docs/sync/push`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        document_id: documentId,
-        content: document.getText(),
-      }),
-    });
+  didWarnMissingDocumentId = false;
 
-    if (!response.ok && !didWarnSyncFailure) {
+  try {
+    const response = await fetch(
+      `${getBackendBaseUrl(context)}/api/docs/sync/push`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          document_id: documentId,
+          content: document.getText(),
+        }),
+      }
+    );
+
+    if (response.ok) {
+      didWarnSyncFailure = false;
+      return;
+    }
+
+    if (!didWarnSyncFailure) {
       didWarnSyncFailure = true;
       const message = await response.text();
+      const hint =
+        response.status === 404
+          ? "The backend responded, but the sync route was not found. Restart the FastAPI server from the current backend code."
+          : message;
+
       vscode.window.showWarningMessage(
-        `iTECify: Cloud sync failed (${response.status}). ${message || ""}`.trim()
+        `iTECify: Cloud sync failed (${response.status}). ${hint || ""}`.trim()
       );
     }
-  } catch (error) {
+  } catch {
     if (!didWarnSyncFailure) {
       didWarnSyncFailure = true;
       vscode.window.showWarningMessage(
@@ -176,7 +362,7 @@ async function pullCode(context: vscode.ExtensionContext): Promise<void> {
     return;
   }
 
-  const documentId = await promptForDocumentId(
+  const documentId = await resolveDocumentId(
     context,
     "Enter the iTECify Document ID to pull"
   );
@@ -187,7 +373,7 @@ async function pullCode(context: vscode.ExtensionContext): Promise<void> {
 
   try {
     const response = await fetch(
-      `${BACKEND_BASE_URL}/api/docs/sync/pull?id=${encodeURIComponent(documentId)}`
+      `${getBackendBaseUrl(context)}/api/docs/sync/pull?id=${encodeURIComponent(documentId)}`
     );
 
     if (!response.ok) {
@@ -217,14 +403,17 @@ async function pullCode(context: vscode.ExtensionContext): Promise<void> {
     } finally {
       isApplyingPull = false;
     }
-  } catch (error) {
+  } catch {
     vscode.window.showErrorMessage(
       "iTECify: Pull failed. Is the backend running?"
     );
   }
 }
 
-async function createBranch(context: vscode.ExtensionContext): Promise<void> {
+async function createBranch(
+  context: vscode.ExtensionContext,
+  statusBar: vscode.StatusBarItem
+): Promise<void> {
   const parentDocumentId = await promptForDocumentId(
     context,
     "Enter the parent Document ID for the branch"
@@ -244,14 +433,17 @@ async function createBranch(context: vscode.ExtensionContext): Promise<void> {
   }
 
   try {
-    const response = await fetch(`${BACKEND_BASE_URL}/api/docs/branch/create`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        parent_doc_id: parentDocumentId,
-        branch_name: branchName,
-      }),
-    });
+    const response = await fetch(
+      `${getBackendBaseUrl(context)}/api/docs/branch/create`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parent_doc_id: parentDocumentId,
+          branch_name: branchName,
+        }),
+      }
+    );
 
     if (!response.ok) {
       const message = await response.text();
@@ -263,19 +455,32 @@ async function createBranch(context: vscode.ExtensionContext): Promise<void> {
 
     const data = (await response.json()) as { document_id?: string };
     if (data.document_id) {
-      await setStoredDocumentId(context, data.document_id);
+      const existingConnection = getStoredConnection(context);
+      if (existingConnection) {
+        await setStoredConnection(context, {
+          ...existingConnection,
+          documentId: data.document_id,
+          title: branchName,
+        });
+      } else {
+        await setStoredDocumentId(context, data.document_id);
+      }
+      updateConnectionStatusBar(statusBar, context);
     }
     vscode.window.showInformationMessage(
       "iTECify: Branch created and set as current document."
     );
-  } catch (error) {
+  } catch {
     vscode.window.showErrorMessage(
       "iTECify: Branch creation failed. Is the backend running?"
     );
   }
 }
 
-async function deleteBranch(context: vscode.ExtensionContext): Promise<void> {
+async function deleteBranch(
+  context: vscode.ExtensionContext,
+  statusBar: vscode.StatusBarItem
+): Promise<void> {
   const documentId = getStoredDocumentId(context);
   if (!documentId) {
     vscode.window.showErrorMessage("iTECify: No Document ID configured.");
@@ -294,7 +499,7 @@ async function deleteBranch(context: vscode.ExtensionContext): Promise<void> {
 
   try {
     const response = await fetch(
-      `${BACKEND_BASE_URL}/api/docs/branch/delete?document_id=${encodeURIComponent(documentId)}`,
+      `${getBackendBaseUrl(context)}/api/docs/branch/delete?document_id=${encodeURIComponent(documentId)}`,
       { method: "DELETE" }
     );
 
@@ -306,17 +511,44 @@ async function deleteBranch(context: vscode.ExtensionContext): Promise<void> {
       return;
     }
 
-    await context.globalState.update(DOCUMENT_ID_KEY, undefined);
+    await clearStoredConnection(context);
+    updateConnectionStatusBar(statusBar, context);
     vscode.window.showInformationMessage("iTECify: Branch deleted.");
-  } catch (error) {
+  } catch {
     vscode.window.showErrorMessage(
       "iTECify: Delete failed. Is the backend running?"
     );
   }
 }
 
+class ItecifyUriHandler implements vscode.UriHandler {
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly statusBar: vscode.StatusBarItem
+  ) {}
+
+  async handleUri(uri: vscode.Uri): Promise<void> {
+    if (uri.path !== "/connect") {
+      vscode.window.showWarningMessage(
+        `iTECify: Unsupported link path "${uri.path || "/"}".`
+      );
+      return;
+    }
+
+    await connectWorkspace(this.context, this.statusBar, uri);
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const outputChannel = vscode.window.createOutputChannel("iTECify Cloud Run");
+
+  const connectionStatusBar = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    101
+  );
+  connectionStatusBar.command = "itecify.connectWorkspace";
+  updateConnectionStatusBar(connectionStatusBar, context);
+  connectionStatusBar.show();
 
   const runDisposable = vscode.commands.registerCommand(
     "itecify.runCloudExecution",
@@ -328,15 +560,23 @@ export function activate(context: vscode.ExtensionContext): void {
     () => pullCode(context)
   );
 
+  const connectDisposable = vscode.commands.registerCommand(
+    "itecify.connectWorkspace",
+    () => connectWorkspace(context, connectionStatusBar)
+  );
+
   const createBranchDisposable = vscode.commands.registerCommand(
     "itecify.createBranch",
-    () => createBranch(context)
+    () => createBranch(context, connectionStatusBar)
   );
 
   const deleteBranchDisposable = vscode.commands.registerCommand(
     "itecify.deleteBranch",
-    () => deleteBranch(context)
+    () => deleteBranch(context, connectionStatusBar)
   );
+
+  const uriHandler = new ItecifyUriHandler(context, connectionStatusBar);
+  const uriDisposable = vscode.window.registerUriHandler(uriHandler);
 
   const changeDisposable = vscode.workspace.onDidChangeTextDocument((event) => {
     if (isApplyingPull || !isEnterChange(event)) {
@@ -344,7 +584,10 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     const activeEditor = vscode.window.activeTextEditor;
-    if (!activeEditor || activeEditor.document.uri.toString() !== event.document.uri.toString()) {
+    if (
+      !activeEditor ||
+      activeEditor.document.uri.toString() !== event.document.uri.toString()
+    ) {
       return;
     }
 
@@ -363,12 +606,15 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     runDisposable,
     pullDisposable,
+    connectDisposable,
     createBranchDisposable,
     deleteBranchDisposable,
+    uriDisposable,
     changeDisposable,
+    connectionStatusBar,
     newBranchStatusBar,
     outputChannel
   );
 }
 
-export function deactivate(): void { }
+export function deactivate(): void {}

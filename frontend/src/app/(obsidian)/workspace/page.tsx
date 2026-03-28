@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { getDocument } from "@/lib/api";
 import type { Document } from "@/types/database";
 import { useActiveDocument } from "@/components/providers/active-document-provider";
+import VsCodeLinkBanner from "@/components/workspace/vscode-link-banner";
 
 // Dynamically import the collaborative editor to prevent SSR issues
 const CollaborativeEditor = dynamic(
@@ -19,14 +20,18 @@ export default function ObsidianWorkspacePage() {
 
     useEffect(() => {
         if (!activeDocumentId) {
-            setDocument(null);
-            setError(null);
+            startTransition(() => {
+                setDocument(null);
+                setError(null);
+            });
             return;
         }
 
         let isMounted = true;
-        setDocument(null);
-        setError(null);
+        startTransition(() => {
+            setDocument(null);
+            setError(null);
+        });
 
         const load = async () => {
             try {
@@ -87,9 +92,16 @@ export default function ObsidianWorkspacePage() {
     // Pass the documentId to the editor once loaded
     return (
         <div style={{ height: "calc(100vh - 8rem)" }}>
+            {document && (
+                <VsCodeLinkBanner
+                    documentId={activeDocumentId}
+                    title={document.title}
+                />
+            )}
             <CollaborativeEditor
                 documentId={activeDocumentId}
                 language={document?.language ?? "python"}
+                initialContent={document?.content ?? ""}
             />
         </div>
     );

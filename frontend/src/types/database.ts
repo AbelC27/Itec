@@ -11,6 +11,7 @@ export interface Document {
   id: string;
   title: string;
   language: string;
+  content?: string | null;
   owner_id: string | null;
   created_at: string;
   updated_at: string;

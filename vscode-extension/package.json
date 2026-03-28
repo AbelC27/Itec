@@ -4,6 +4,9 @@
   "description": "Execute code in iTECify cloud environment",
   "version": "0.1.0",
   "publisher": "itecify",
+  "activationEvents": [
+    "onUri"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -24,6 +27,11 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "itecify.connectWorkspace",
+        "title": "iTECify: Connect Workspace",
+        "icon": "$(plug)"
+      },
+      {
         "command": "itecify.createBranch",
         "title": "iTECify: New Branch",
         "icon": "$(git-branch)"
@@ -42,6 +50,16 @@
           "when": "resourceLangId == python || resourceLangId == javascript || resourceLangId == javascriptreact"
         }
       ]
+    },
+    "configuration": {
+      "title": "iTECify",
+      "properties": {
+        "itecify.backendBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Base URL for the iTECify FastAPI backend."
+        }
+      }
     },
     "keybindings": [
       {
