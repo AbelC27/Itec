@@ -163,17 +163,64 @@ function EditorWithYjs({
   const [chatSessions, setChatSessions] = useState<AiChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
+  const chatSessionStorageKey = useMemo(
+    () => `itec.activeChatSession.${documentId}.${profile.id}`,
+    [documentId, profile.id]
+  );
+  const chatSessionsCacheKey = useMemo(
+    () => `itec.chatSessions.${documentId}.${profile.id}`,
+    [documentId, profile.id]
+  );
+  const chatMessagesCacheKey = useMemo(
+    () => `itec.chatMessages.${documentId}.${profile.id}`,
+    [documentId, profile.id]
+  );
 
   // Load chat sessions on mount
   useEffect(() => {
     let cancelled = false;
+
+    if (typeof window !== "undefined") {
+      try {
+        const cachedSessions = window.localStorage.getItem(chatSessionsCacheKey);
+        if (cachedSessions) {
+          const parsed = JSON.parse(cachedSessions) as AiChatSession[];
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setChatSessions(parsed);
+            const savedSessionId = window.localStorage.getItem(chatSessionStorageKey);
+            const nextSessionId =
+              savedSessionId && parsed.some((s) => s.id === savedSessionId)
+                ? savedSessionId
+                : parsed[0].id;
+            setActiveSessionId(nextSessionId);
+          }
+        }
+      } catch {
+        // Ignore cache parse failures.
+      }
+    }
+
     (async () => {
       try {
-        const sessions = await getChatSessions(documentId, profile.id);
+        let sessions = await getChatSessions(documentId, profile.id);
+        // Backward compatibility: include sessions created before user scoping.
+        if (sessions.length === 0) {
+          sessions = await getChatSessions(documentId);
+        }
         if (cancelled) return;
         setChatSessions(sessions);
         if (sessions.length > 0) {
-          setActiveSessionId(sessions[0].id);
+          const savedSessionId =
+            typeof window !== "undefined"
+              ? window.localStorage.getItem(chatSessionStorageKey)
+              : null;
+          const nextSessionId =
+            savedSessionId && sessions.some((s) => s.id === savedSessionId)
+              ? savedSessionId
+              : sessions[0].id;
+          setActiveSessionId(nextSessionId);
+        } else {
+          setActiveSessionId(null);
         }
       } catch {
         // Silently fail — sessions just won't load
@@ -182,7 +229,27 @@ function EditorWithYjs({
       }
     })();
     return () => { cancelled = true; };
-  }, [documentId, readOnly]);
+  }, [documentId, profile.id, readOnly, chatSessionStorageKey, chatSessionsCacheKey]);
+
+  // Cache chat sessions locally for resilience across refresh/transient API failures.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(chatSessionsCacheKey, JSON.stringify(chatSessions));
+    } catch {
+      // Ignore cache write failures.
+    }
+  }, [chatSessions, chatSessionsCacheKey]);
+
+  // Persist currently selected chat session so refresh restores context.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!activeSessionId) {
+      window.localStorage.removeItem(chatSessionStorageKey);
+      return;
+    }
+    window.localStorage.setItem(chatSessionStorageKey, activeSessionId);
+  }, [activeSessionId, chatSessionStorageKey]);
 
   // Load messages when active session changes
   useEffect(() => {
@@ -190,6 +257,22 @@ function EditorWithYjs({
       setChatMessages([]);
       return;
     }
+
+    if (typeof window !== "undefined") {
+      try {
+        const cachedMessages = window.localStorage.getItem(chatMessagesCacheKey);
+        if (cachedMessages) {
+          const parsed = JSON.parse(cachedMessages) as Record<string, ChatMessage[]>;
+          const cachedSessionMessages = parsed?.[activeSessionId];
+          if (Array.isArray(cachedSessionMessages)) {
+            setChatMessages(cachedSessionMessages);
+          }
+        }
+      } catch {
+        // Ignore cache parse failures.
+      }
+    }
+
     let cancelled = false;
     (async () => {
       try {
@@ -204,11 +287,26 @@ function EditorWithYjs({
           }))
         );
       } catch {
-        if (!cancelled) setChatMessages([]);
+        // Keep cached messages if API fetch fails.
       }
     })();
     return () => { cancelled = true; };
-  }, [activeSessionId]);
+  }, [activeSessionId, chatMessagesCacheKey]);
+
+  // Cache messages per session so history is immediately available after refresh.
+  useEffect(() => {
+    if (!activeSessionId || typeof window === "undefined") return;
+    try {
+      const existing = window.localStorage.getItem(chatMessagesCacheKey);
+      const parsed = existing
+        ? (JSON.parse(existing) as Record<string, ChatMessage[]>)
+        : {};
+      parsed[activeSessionId] = chatMessages;
+      window.localStorage.setItem(chatMessagesCacheKey, JSON.stringify(parsed));
+    } catch {
+      // Ignore cache write failures.
+    }
+  }, [activeSessionId, chatMessages, chatMessagesCacheKey]);
 
   const handleNewChat = useCallback(async () => {
     try {
@@ -219,7 +317,7 @@ function EditorWithYjs({
     } catch {
       // Silently fail
     }
-  }, [documentId]);
+  }, [documentId, profile.id]);
 
   const handleDeleteChat = useCallback(async (sessionId: string) => {
     try {
@@ -1157,15 +1255,15 @@ function EditorWithYjs({
 
         {/* ── AI Chat Panel ──────────────────────────────── */}
         </Panel>
-        <ResizeHandle direction="horizontal" className="hidden lg:flex" />
+        <ResizeHandle direction="horizontal" className="hidden md:flex" />
         <Panel
-          defaultSize={36}
+          defaultSize={40}
           minSize={26}
-          className="hidden min-w-[380px] max-w-[56%] lg:flex"
+          className="hidden min-w-[320px] max-w-[62%] md:flex"
         >
           <aside className="flex h-full w-full flex-col border-l border-border bg-gradient-to-b from-background/95 via-background/90 to-background/75 shadow-2xl backdrop-blur-xl">
           {/* Chat session tabs */}
-          <div className="px-4 py-3 border-b border-border/90 flex flex-col gap-1.5 max-h-[180px] overflow-y-auto">
+          <div className="px-4 py-2 border-b border-border/90 flex flex-col gap-1.5 max-h-[108px] overflow-y-auto">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">
                 Chats
@@ -1213,23 +1311,23 @@ function EditorWithYjs({
           </div>
 
           {/* AI Header */}
-          <div className="p-5 border-b border-border/90 flex flex-col items-center gap-3 bg-secondary/10">
-            <div className="relative w-20 h-20 rounded-full border-4 border-blue-500/20 p-1.5 overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-border/90 flex items-center gap-3 bg-secondary/10">
+            <div className="relative w-12 h-12 rounded-full border-2 border-blue-500/25 p-1 overflow-hidden shrink-0">
               <img
                 alt="AI Avatar"
                 src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYjJj3xmWNxsfNv-m0aOn2bsxrnEL3iuAD_V4xFEQ8RcaT2AkNLE23zaIJYFBO6rhSR6IQsJOU5psJvf3zpjwr8XSxqeq2YBs-1muiDxq-SXjC_aWLcZezZBabV7yfw4vu6zsT-Ad1u6uaqXDL2ZUw985HG4CSPssY4RYwjNF8oTZIANgsHpzEc6RLT4feLAGTekgH-BKVmH0s7fM2G1dfyeCXCDUDqZSDXVRf7RO0RMTHTvXzKe94Dshsm8pYz5C3qJS_5hHP-yY"
                 className="w-full h-full object-cover rounded-full saturate-50 hover:saturate-100 transition-all duration-300"
               />
-              <div className="absolute bottom-0.5 right-0.5 w-4.5 h-4.5 rounded-full bg-emerald-400 border-[3px] border-background" />
+              <div className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-background" />
             </div>
-            <div className="text-center">
-              <div className="text-xs font-extrabold tracking-[0.24em] uppercase">iTECity AI</div>
-              <div className="text-[11px] font-mono text-emerald-400 tracking-widest">STATUS: READY</div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-extrabold tracking-[0.2em] uppercase">iTECity AI</div>
+              <div className="text-[10px] font-mono text-emerald-400 tracking-widest">Status: Ready</div>
             </div>
           </div>
 
           {/* Chat Messages */}
-          <div className="flex-1 overflow-auto p-4 flex flex-col gap-3">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-2.5">
             {chatMessages.length === 0 ? (
               <div className="w-full p-4 rounded-2xl text-[14px] leading-relaxed border border-border bg-secondary/25">
                 No messages yet.
@@ -1242,7 +1340,7 @@ function EditorWithYjs({
                 return (
                   <div
                     key={message.id}
-                    className={`w-full p-4 rounded-2xl text-[14px] leading-relaxed border ${
+                    className={`w-full p-3.5 rounded-2xl text-[14px] leading-relaxed border ${
                       isUser
                         ? "bg-secondary border-border"
                         : "bg-blue-950/30 border-blue-500/20"
@@ -1327,31 +1425,31 @@ function EditorWithYjs({
           </div>
 
           {/* Chat Input */}
-          <div className="p-3 border-t border-border/90 bg-secondary/30">
-            <div className="w-full bg-secondary/95 rounded-2xl p-3 border border-border shadow-sm">
+          <div className="p-2.5 border-t border-border/90 bg-secondary/30">
+            <div className="w-full bg-secondary/95 rounded-xl p-2.5 border border-border shadow-sm">
               <textarea
                 placeholder="Ask iTECity AI..."
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
                 onKeyDown={handleChatKeyDown}
-                className="w-full min-h-[58px] resize-none border-none bg-transparent text-foreground text-[12px] font-sans leading-relaxed outline-none"
+                className="w-full min-h-[42px] max-h-[120px] resize-y border-none bg-transparent text-foreground text-[12px] font-sans leading-relaxed outline-none"
               ></textarea>
-              <div className="flex items-center justify-between mt-3">
+              <div className="flex items-center justify-between mt-2">
                 <div className="flex gap-3">
-                  <button type="button" className="border-none bg-transparent text-muted-foreground p-2.5 rounded-xl cursor-pointer transition-colors hover:bg-accent hover:text-foreground">
-                    <Paperclip className="h-5 w-5" />
+                  <button type="button" className="border-none bg-transparent text-muted-foreground p-2 rounded-lg cursor-pointer transition-colors hover:bg-accent hover:text-foreground">
+                    <Paperclip className="h-4 w-4" />
                   </button>
-                  <button type="button" className="border-none bg-transparent text-muted-foreground p-2.5 rounded-xl cursor-pointer transition-colors hover:bg-accent hover:text-foreground">
-                    <Mic className="h-5 w-5" />
+                  <button type="button" className="border-none bg-transparent text-muted-foreground p-2 rounded-lg cursor-pointer transition-colors hover:bg-accent hover:text-foreground">
+                    <Mic className="h-4 w-4" />
                   </button>
                 </div>
                 <button
                   type="button"
                   onClick={handleSendChat}
                   disabled={isSending}
-                  className="border-none bg-primary text-primary-foreground rounded-xl p-2 grid place-items-center cursor-pointer transition-all duration-150 hover:shadow-[0_0_15px_rgba(250,250,250,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="border-none bg-primary text-primary-foreground rounded-lg p-2 grid place-items-center cursor-pointer transition-all duration-150 hover:shadow-[0_0_15px_rgba(250,250,250,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Send className="h-5 w-5" />
+                  <Send className="h-4 w-4" />
                 </button>
               </div>
             </div>
