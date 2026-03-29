@@ -34,6 +34,10 @@ function TeacherLiveTelemetryDashboard() {
     const [obsDoc, setObsDoc] = useState<Document | null>(null);
     const [obsLoading, setObsLoading] = useState(false);
     const [specDialogOpen, setSpecDialogOpen] = useState(false);
+    const sessionNameById = useCallback(
+        (sessionId: string) => sessions.find((s) => s.id === sessionId)?.name,
+        [sessions]
+    );
 
     // Persist selected session in URL so it survives refresh / navigation
     const selectedTelemetryId = searchParams.get("observe") ?? null;
@@ -188,9 +192,14 @@ function TeacherLiveTelemetryDashboard() {
                         Repeated run failures
                     </p>
                     <ul className="space-y-1 list-disc list-inside">
-                        {alerts.map((a) => (
-                            <li key={`${a.session_id}-${a.consecutive_failures}`}>{a.message}</li>
-                        ))}
+                        {alerts.map((a) => {
+                            const sessionName = sessionNameById(a.session_id) ?? "Student session";
+                            return (
+                                <li key={`${a.session_id}-${a.consecutive_failures}`}>
+                                    {sessionName} has {a.consecutive_failures} failed runs in a row.
+                                </li>
+                            );
+                        })}
                     </ul>
                 </div>
             ) : null}
@@ -199,19 +208,16 @@ function TeacherLiveTelemetryDashboard() {
                 <div className="rounded-2xl border border-border overflow-hidden bg-card">
                     <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-secondary/50 border-b border-border">
                         <div className="flex items-center gap-3">
-                            <span className="text-xs font-mono text-muted-foreground">
-                                Observing session · {selectedTelemetryId.slice(0, 12)}…
-                            </span>
                             {(() => {
                                 const obs = sessions.find((s) => s.id === selectedTelemetryId);
                                 const stuck = stuckSessions.find((s) => s.session_id === selectedTelemetryId);
+                                const observedName = obs?.name ?? "Student session";
                                 return (
                                     <>
-                                        {obs && (
-                                            <span className="text-xs text-muted-foreground">
-                                                · {obs.name} · {obs.stack}
-                                            </span>
-                                        )}
+                                        <span className="text-xs font-mono text-muted-foreground">
+                                            Observing session · {observedName}
+                                        </span>
+                                        {obs && <span className="text-xs text-muted-foreground">· {obs.stack}</span>}
                                         {stuck && (
                                             <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[10px] font-medium text-rose-400">
                                                 <span className="h-1.5 w-1.5 rounded-full bg-rose-400 animate-pulse" />
@@ -239,6 +245,7 @@ function TeacherLiveTelemetryDashboard() {
                         <div style={{ height: "calc(100vh - 12rem)", minHeight: "600px" }}>
                             <CollaborativeEditor
                                 documentId={selectedTelemetryId}
+                                documentTitle={obsDoc.title ?? sessionNameById(selectedTelemetryId) ?? "Observed session"}
                                 language={obsDoc.language ?? "python"}
                                 initialContent={obsDoc.content ?? ""}
                                 readOnly
@@ -396,6 +403,7 @@ export default function ObsidianWorkspacePage() {
             <div className="flex-1 min-h-0">
                 <CollaborativeEditor
                     documentId={activeDocumentId}
+                    documentTitle={document.title}
                     language={document.language ?? "python"}
                     initialContent={document.content ?? ""}
                 />

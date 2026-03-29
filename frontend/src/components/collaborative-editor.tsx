@@ -52,6 +52,7 @@ function parseMessageParts(content: string): { type: "text" | "code"; value: str
 
 interface CollaborativeEditorProps {
   documentId: string;
+  documentTitle?: string;
   language?: string;
   initialContent?: string;
   onSnapshotChange?: (content: string) => void;
@@ -100,6 +101,7 @@ function ResizeHandle({
 
 export default function CollaborativeEditor({
   documentId,
+  documentTitle,
   language = "python",
   initialContent = "",
   onSnapshotChange,
@@ -119,6 +121,7 @@ export default function CollaborativeEditor({
     <EditorWithYjs
       key={`${documentId}-${readOnly ? "ro" : "rw"}`}
       documentId={documentId}
+      documentTitle={documentTitle}
       profile={profile}
       language={language}
       initialContent={initialContent}
@@ -130,6 +133,7 @@ export default function CollaborativeEditor({
 
 function EditorWithYjs({
   documentId,
+  documentTitle,
   profile,
   language,
   initialContent,
@@ -137,6 +141,7 @@ function EditorWithYjs({
   readOnly = false,
 }: {
   documentId: string;
+  documentTitle?: string;
   profile: { id: string; username: string; avatar_color_hex: string; role: UserRole };
   language: string;
   initialContent: string;
@@ -1010,7 +1015,7 @@ function EditorWithYjs({
           {/* ── Tab Bar ───────────────────────────────────── */}
           <div data-ragequit="tab-bar" className="flex border-b border-border bg-secondary/40 overflow-x-auto">
             <span className="flex items-center gap-2 px-4 py-3 text-[11px] font-mono text-muted-foreground border-r border-border">
-              {language.charAt(0).toUpperCase() + language.slice(1)} — {documentId.slice(0, 8)}
+              {language.charAt(0).toUpperCase() + language.slice(1)} - {documentTitle?.trim() || "Current document"}
             </span>
           </div>
 

@@ -23,7 +23,7 @@ export default function VsCodeLinkBanner({
   title,
   content,
 }: VsCodeLinkBannerProps) {
-  const [copied, setCopied] = useState<"id" | "link" | null>(null);
+  const [copied, setCopied] = useState<"link" | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectStatus, setConnectStatus] = useState<
     "idle" | "connected" | "opening"
@@ -39,7 +39,7 @@ export default function VsCodeLinkBanner({
     return `vscode://${EXTENSION_ID}/connect?${params.toString()}`;
   }, [documentId, title]);
 
-  async function copyValue(value: string, kind: "id" | "link") {
+  async function copyValue(value: string, kind: "link") {
     try {
       await navigator.clipboard.writeText(value);
       setCopied(kind);
@@ -92,12 +92,12 @@ export default function VsCodeLinkBanner({
           VS Code Sync
         </div>
         <p className="text-sm text-muted-foreground">
-          This workspace is linked by document ID. Connect from here to open the iTECify VS Code
-          extension, then use the explicit Push/Pull actions from VS Code instead of background
-          syncing.
+          This workspace is linked to your current document. Connect from here to open the iTECify
+          VS Code extension, then use the explicit Push/Pull actions from VS Code instead of
+          background syncing.
         </p>
         <p className="text-xs text-muted-foreground">
-          Current document: <span className="font-mono text-foreground">{documentId}</span>
+          Current document: <span className="font-medium text-foreground">{title}</span>
         </p>
         {connectStatus === "connected" && (
           <p className="text-xs text-emerald-300">
@@ -121,14 +121,6 @@ export default function VsCodeLinkBanner({
         >
           <PlugZap className="h-4 w-4" />
           {isConnecting ? "Connecting..." : "Connect VS Code"}
-        </Button>
-
-        <Button
-          variant="outline"
-          onClick={() => void copyValue(documentId, "id")}
-        >
-          <Copy className="h-4 w-4" />
-          {copied === "id" ? "Copied ID" : "Copy ID"}
         </Button>
 
         <Button
