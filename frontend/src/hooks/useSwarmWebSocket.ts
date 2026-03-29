@@ -40,6 +40,9 @@ export function useSwarmWebSocket({
     test_results: "",
     error_message: "",
     retry_count: 0,
+    spec_markdown: "",
+    code_snapshot: "",
+    spec_compliant: true,
   });
 
   const [status, setStatus] = useState<SwarmStatus>("idle");

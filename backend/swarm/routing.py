@@ -69,6 +69,8 @@ def route_after_testing(state: Swarm_State) -> str:
     """
     # Success case: exit_code is 0
     if "Exit code: 0" in state["test_results"]:
+        if state.get("spec_markdown", ""):
+            return "spec_enforcer"
         return END
     
     # Retry case: failure with retries remaining
@@ -76,4 +78,9 @@ def route_after_testing(state: Swarm_State) -> str:
         return "python_developer"
     
     # Max retries reached: terminate with failure
+    return END
+
+
+def route_after_spec_enforcer(state: Swarm_State) -> str:
+    """Always terminate after spec enforcement."""
     return END

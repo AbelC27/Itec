@@ -13,11 +13,13 @@ from swarm.nodes import (
     python_developer_node,
     security_reviewer_node,
     sandbox_tester_node,
+    spec_enforcer_node,
 )
 from swarm.routing import (
     route_after_generation,
     route_after_security,
     route_after_testing,
+    route_after_spec_enforcer,
 )
 
 
@@ -47,6 +49,7 @@ def create_swarm_graph():
     graph.add_node("python_developer", python_developer_node)
     graph.add_node("security_reviewer", security_reviewer_node)
     graph.add_node("sandbox_tester", sandbox_tester_node)
+    graph.add_node("spec_enforcer", spec_enforcer_node)
     
     # Set entry point to python_developer
     graph.set_entry_point("python_developer")
@@ -71,14 +74,22 @@ def create_swarm_graph():
         }
     )
     
-    # Conditional edge: Sandbox_Tester -> Python_Developer (retry) or END
+    # Conditional edge: Sandbox_Tester -> Python_Developer (retry), Spec_Enforcer, or END
     graph.add_conditional_edges(
         "sandbox_tester",
         route_after_testing,
         {
             "python_developer": "python_developer",
+            "spec_enforcer": "spec_enforcer",
             END: END
         }
+    )
+    
+    # Conditional edge: Spec_Enforcer -> END
+    graph.add_conditional_edges(
+        "spec_enforcer",
+        route_after_spec_enforcer,
+        {END: END}
     )
     
     # Compile and return the graph

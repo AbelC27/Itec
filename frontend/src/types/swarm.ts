@@ -9,6 +9,9 @@ export interface SwarmState {
   test_results: string;
   error_message: string;
   retry_count: number;
+  spec_markdown: string;
+  code_snapshot: string;
+  spec_compliant: boolean;
 }
 
 export type SwarmMessageType = "state_update" | "complete" | "error";
@@ -28,5 +31,13 @@ export interface TutorIntervention {
   question: string;
   root_cause_summary: string;
   language: string;
+  created_at: string;
+}
+
+export interface ComplianceNudge {
+  session_id: string;
+  compliant: boolean;
+  message: string;
+  missed_requirements: string[];
   created_at: string;
 }

@@ -367,3 +367,33 @@ export async function getStuckSessions(
 ): Promise<StuckSession[]> {
     return fetchJson<StuckSession[]>("/api/telemetry/stuck-sessions", init);
 }
+
+
+// ── Spec Management ──────────────────────────────────────────────────
+
+export type SpecResponse = {
+    session_id: string;
+    spec_markdown: string | null;
+};
+
+export async function putSessionSpec(
+    sessionId: string,
+    specMarkdown: string,
+    init?: RequestInit
+): Promise<{ status: string; session_id: string }> {
+    return fetchJson<{ status: string; session_id: string }>(
+        `/api/sessions/${sessionId}/spec`,
+        {
+            method: "PUT",
+            body: JSON.stringify({ spec_markdown: specMarkdown }),
+            ...init,
+        }
+    );
+}
+
+export async function getSessionSpec(
+    sessionId: string,
+    init?: RequestInit
+): Promise<SpecResponse> {
+    return fetchJson<SpecResponse>(`/api/sessions/${sessionId}/spec`, init);
+}

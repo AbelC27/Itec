@@ -1,8 +1,9 @@
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from db import get_supabase_client
+from schemas import SpecUpsertRequest
 from ws_router import manager
 
 logger = logging.getLogger(__name__)
@@ -98,3 +99,31 @@ async def list_active_sessions() -> list[dict]:
         )
 
     return out
+
+
+# --- Spec Management ---
+
+
+@router.put("/api/sessions/{session_id}/spec")
+async def upsert_session_spec(session_id: str, body: SpecUpsertRequest) -> dict:
+    """Create or update the assignment spec for a session."""
+    client = get_supabase_client()
+    # Verify session exists
+    check = client.table("documents").select("id").eq("id", session_id).limit(1).execute()
+    if not check.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    value = body.spec_markdown if body.spec_markdown.strip() else None
+    client.table("documents").update({"spec_markdown": value}).eq("id", session_id).execute()
+    return {"status": "ok", "session_id": session_id}
+
+
+@router.get("/api/sessions/{session_id}/spec")
+async def get_session_spec(session_id: str) -> dict:
+    """Return the current assignment spec for a session."""
+    client = get_supabase_client()
+    result = client.table("documents").select("id, spec_markdown").eq("id", session_id).limit(1).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    row = result.data[0]
+    return {"session_id": session_id, "spec_markdown": row.get("spec_markdown")}

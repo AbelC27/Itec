@@ -3,15 +3,19 @@
 import { startTransition, useEffect, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
-import { getDocument, getActiveSessions, getExecutionTelemetryAlerts } from "@/lib/api";
+import { getDocument, getActiveSessions, getExecutionTelemetryAlerts, getStuckSessions } from "@/lib/api";
 import type { Document } from "@/types/database";
-import type { ActiveSession, ExecutionTelemetryAlert } from "@/lib/api";
+import type { ActiveSession, ExecutionTelemetryAlert, StuckSession } from "@/lib/api";
 import { useActiveDocument } from "@/components/providers/active-document-provider";
 import { useProfile } from "@/hooks/useProfile";
 import { useTutorIntervention } from "@/hooks/useTutorIntervention";
+import { useSpecNudge } from "@/hooks/useSpecNudge";
 import VsCodeLinkBanner from "@/components/workspace/vscode-link-banner";
 import TutorInterventionBlock from "@/components/workspace/TutorInterventionBlock";
+import SpecNudgeBlock from "@/components/workspace/SpecNudgeBlock";
 import ActiveSessions from "@/components/dashboard/ActiveSessions";
+import InsightCard from "@/components/dashboard/InsightCard";
+import SpecDialog from "@/components/workspace/SpecDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const CollaborativeEditor = dynamic(
@@ -24,10 +28,12 @@ function TeacherLiveTelemetryDashboard() {
     const router = useRouter();
     const [sessions, setSessions] = useState<ActiveSession[]>([]);
     const [alerts, setAlerts] = useState<ExecutionTelemetryAlert[]>([]);
+    const [stuckSessions, setStuckSessions] = useState<StuckSession[]>([]);
     const [sessionsError, setSessionsError] = useState<string | null>(null);
     const [loadingSessions, setLoadingSessions] = useState(true);
     const [obsDoc, setObsDoc] = useState<Document | null>(null);
     const [obsLoading, setObsLoading] = useState(false);
+    const [specDialogOpen, setSpecDialogOpen] = useState(false);
 
     // Persist selected session in URL so it survives refresh / navigation
     const selectedTelemetryId = searchParams.get("observe") ?? null;
@@ -47,34 +53,70 @@ function TeacherLiveTelemetryDashboard() {
 
     useEffect(() => {
         let cancelled = false;
+        let intervalId: ReturnType<typeof setInterval> | null = null;
 
         async function tick() {
-            try {
-                const [s, a] = await Promise.all([
-                    getActiveSessions(),
-                    getExecutionTelemetryAlerts(),
-                ]);
-                if (!cancelled) {
-                    setSessions(s);
-                    setAlerts(a);
-                    setSessionsError(null);
+            const results = await Promise.allSettled([
+                getActiveSessions(),
+                getExecutionTelemetryAlerts(),
+                getStuckSessions(),
+            ]);
+            if (cancelled) return;
+
+            // Sessions
+            if (results[0].status === "fulfilled") {
+                setSessions(results[0].value);
+                setSessionsError(null);
+            } else {
+                setSessionsError(
+                    results[0].reason instanceof Error
+                        ? results[0].reason.message
+                        : "Failed to load sessions"
+                );
+            }
+
+            // Alerts
+            if (results[1].status === "fulfilled") {
+                setAlerts(results[1].value);
+            } else {
+                setAlerts([]);
+            }
+
+            // Stuck sessions
+            if (results[2].status === "fulfilled") {
+                setStuckSessions(results[2].value);
+            } else {
+                setStuckSessions([]);
+            }
+
+            setLoadingSessions(false);
+        }
+
+        function startPolling() {
+            if (intervalId) clearInterval(intervalId);
+            intervalId = setInterval(() => void tick(), 10_000);
+        }
+
+        function handleVisibility() {
+            if (document.hidden) {
+                if (intervalId) {
+                    clearInterval(intervalId);
+                    intervalId = null;
                 }
-            } catch (err) {
-                if (!cancelled) {
-                    setSessionsError(
-                        err instanceof Error ? err.message : "Failed to load telemetry"
-                    );
-                }
-            } finally {
-                if (!cancelled) setLoadingSessions(false);
+            } else {
+                void tick();
+                startPolling();
             }
         }
 
         void tick();
-        const id = window.setInterval(() => void tick(), 8000);
+        startPolling();
+        document.addEventListener("visibilitychange", handleVisibility);
+
         return () => {
             cancelled = true;
-            window.clearInterval(id);
+            if (intervalId) clearInterval(intervalId);
+            document.removeEventListener("visibilitychange", handleVisibility);
         };
     }, []);
 
@@ -123,6 +165,23 @@ function TeacherLiveTelemetryDashboard() {
                 </p>
             </div>
 
+            {selectedTelemetryId && (
+                <>
+                    <button
+                        type="button"
+                        onClick={() => setSpecDialogOpen(true)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-border bg-secondary/50 px-3 py-1.5 text-[11px] uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                        📋 Set Assignment Spec
+                    </button>
+                    <SpecDialog
+                        sessionId={selectedTelemetryId}
+                        open={specDialogOpen}
+                        onOpenChange={setSpecDialogOpen}
+                    />
+                </>
+            )}
+
             {alerts.length > 0 ? (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-[11px] text-amber-100">
                     <p className="font-semibold uppercase tracking-widest text-amber-300 mb-2">
@@ -139,9 +198,30 @@ function TeacherLiveTelemetryDashboard() {
             {selectedTelemetryId ? (
                 <div className="rounded-2xl border border-border overflow-hidden bg-card">
                     <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-secondary/50 border-b border-border">
-                        <span className="text-xs font-mono text-muted-foreground">
-                            Observing session · {selectedTelemetryId.slice(0, 12)}…
-                        </span>
+                        <div className="flex items-center gap-3">
+                            <span className="text-xs font-mono text-muted-foreground">
+                                Observing session · {selectedTelemetryId.slice(0, 12)}…
+                            </span>
+                            {(() => {
+                                const obs = sessions.find((s) => s.id === selectedTelemetryId);
+                                const stuck = stuckSessions.find((s) => s.session_id === selectedTelemetryId);
+                                return (
+                                    <>
+                                        {obs && (
+                                            <span className="text-xs text-muted-foreground">
+                                                · {obs.name} · {obs.stack}
+                                            </span>
+                                        )}
+                                        {stuck && (
+                                            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[10px] font-medium text-rose-400">
+                                                <span className="h-1.5 w-1.5 rounded-full bg-rose-400 animate-pulse" />
+                                                Stuck: {stuck.failure_streak} failures
+                                            </span>
+                                        )}
+                                    </>
+                                );
+                            })()}
+                        </div>
                         <button
                             type="button"
                             onClick={() => setSelectedTelemetryId(null)}
@@ -173,6 +253,11 @@ function TeacherLiveTelemetryDashboard() {
                         isLoading={loadingSessions}
                         error={sessionsError}
                         onSelectSession={(s) => setSelectedTelemetryId(s.id)}
+                        stuckSessions={stuckSessions}
+                    />
+                    <InsightCard
+                        stuckCount={stuckSessions.length}
+                        alertCount={alerts.length}
                     />
                 </div>
             )}
@@ -188,6 +273,11 @@ export default function ObsidianWorkspacePage() {
     const [isDocLoading, setIsDocLoading] = useState(false);
 
     const { intervention, dismiss } = useTutorIntervention({
+        documentId: activeDocumentId ?? "",
+        enabled: !!activeDocumentId,
+    });
+
+    const { nudge, dismiss: dismissNudge } = useSpecNudge({
         documentId: activeDocumentId ?? "",
         enabled: !!activeDocumentId,
     });
@@ -299,6 +389,9 @@ export default function ObsidianWorkspacePage() {
                     intervention={intervention}
                     onDismiss={dismiss}
                 />
+            )}
+            {nudge && (
+                <SpecNudgeBlock nudge={nudge} onDismiss={dismissNudge} />
             )}
             <div className="flex-1 min-h-0">
                 <CollaborativeEditor

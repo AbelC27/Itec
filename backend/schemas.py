@@ -131,7 +131,8 @@ class Swarm_State(TypedDict):
     """Shared state passed between all LangGraph nodes in the autonomous agent swarm.
     
     This TypedDict serves as the state schema for the LangGraph workflow that
-    orchestrates Python_Developer, Security_Reviewer, and Sandbox_Tester nodes.
+    orchestrates Python_Developer, Security_Reviewer, Sandbox_Tester, and
+    Spec_Enforcer nodes.
     """
 
     user_prompt: str
@@ -140,3 +141,32 @@ class Swarm_State(TypedDict):
     test_results: str
     error_message: str
     retry_count: int  # Initializes to 0, max 3 retries
+    spec_markdown: str  # Teacher's rubric markdown, default ""
+    code_snapshot: str  # Code that passed sandbox execution, default ""
+    spec_compliant: bool  # Result from spec enforcer, default True
+
+
+# --- Spec-Driven Enforcement ---
+
+
+class SpecUpsertRequest(BaseModel):
+    """Request body for creating/updating a session spec."""
+
+    spec_markdown: str
+
+
+class SpecResponse(BaseModel):
+    """Response model for a session spec."""
+
+    session_id: str
+    spec_markdown: str | None
+
+
+class ComplianceNudge(BaseModel):
+    """Payload produced by the Spec Enforcer Agent."""
+
+    session_id: str
+    compliant: bool
+    message: str
+    missed_requirements: list[str] = []
+    created_at: datetime

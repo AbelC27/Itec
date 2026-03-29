@@ -275,6 +275,22 @@ async def swarm_websocket(websocket: WebSocket, document_id: str) -> None:
             )
             return
         
+        # Load spec_markdown from documents table if available
+        spec_markdown = ""
+        try:
+            client = get_supabase_client()
+            spec_result = (
+                client.table("documents")
+                .select("spec_markdown")
+                .eq("id", document_id)
+                .limit(1)
+                .execute()
+            )
+            if spec_result.data and spec_result.data[0].get("spec_markdown"):
+                spec_markdown = spec_result.data[0]["spec_markdown"]
+        except Exception as exc:
+            logger.error("Failed to load spec_markdown for %s: %s", document_id, exc)
+
         # Initialize Swarm_State with default values
         initial_state: Swarm_State = {
             "user_prompt": user_prompt,
@@ -282,7 +298,10 @@ async def swarm_websocket(websocket: WebSocket, document_id: str) -> None:
             "security_status": "",
             "test_results": "",
             "error_message": "",
-            "retry_count": 0
+            "retry_count": 0,
+            "spec_markdown": spec_markdown,
+            "code_snapshot": "",
+            "spec_compliant": True,
         }
         
         # Create compiled LangGraph workflow
@@ -315,6 +334,21 @@ async def swarm_websocket(websocket: WebSocket, document_id: str) -> None:
             {"type": "complete", "final_state": final_state},
             document_id
         )
+
+        # Broadcast spec_nudge if spec enforcement ran
+        if final_state.get("spec_markdown"):
+            from datetime import datetime, timezone
+            nudge_data = {
+                "session_id": document_id,
+                "compliant": final_state.get("spec_compliant", True),
+                "message": final_state.get("error_message", "") if not final_state.get("spec_compliant", True) else "Your code meets all assignment requirements!",
+                "missed_requirements": [],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await manager.broadcast(
+                {"type": "spec_nudge", "data": nudge_data},
+                document_id
+            )
     
     except WebSocketDisconnect:
         pass

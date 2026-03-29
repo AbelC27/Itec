@@ -180,7 +180,7 @@ async def sandbox_tester_node(state: Swarm_State) -> dict:
                 "retry_count": state["retry_count"] + 1
             }
         
-        return {"test_results": test_results, "error_message": ""}
+        return {"test_results": test_results, "error_message": "", "code_snapshot": code}
     
     except Exception as e:
         return {
@@ -281,3 +281,81 @@ async def sentinel_tutor_node(state: TutorTriggerState) -> dict:
             language=language,
             created_at=datetime.now(timezone.utc),
         ).model_dump(mode="json")
+
+
+# ---------------------------------------------------------------------------
+# Spec Enforcer Agent — assignment compliance checking (Spec-Driven Enforcement)
+# ---------------------------------------------------------------------------
+
+_SPEC_ENFORCER_SYSTEM_PROMPT = (
+    "You are an Assignment Enforcer. The student's code currently executes successfully. "
+    "Compare their code against the Teacher's Spec. If they missed a requirement "
+    "(e.g., 'You must use a while loop, but you used a for loop'), provide a brief "
+    "Socratic nudge to correct them. Do not write the code for them.\n\n"
+    "Respond in JSON:\n"
+    '{"compliant": true/false, "message": "...", "missed_requirements": ["...", "..."]}'
+)
+
+
+async def spec_enforcer_node(state: Swarm_State) -> dict:
+    """Compare student code against the teacher's spec and produce a compliance nudge."""
+    spec_markdown = state.get("spec_markdown", "")
+    code_snapshot = state.get("code_snapshot", "")
+    language = "python"  # inferred from swarm context
+
+    # No spec or no code → compliant by default
+    if not spec_markdown.strip() or not code_snapshot.strip():
+        return {
+            "spec_compliant": True,
+            "error_message": "",
+        }
+
+    client = AsyncOpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+    )
+
+    try:
+        response = await client.chat.completions.create(
+            model="openai/gpt-4o",
+            temperature=0.3,
+            timeout=15,
+            messages=[
+                {"role": "system", "content": _SPEC_ENFORCER_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        f"## Teacher's Spec\n{spec_markdown}\n\n"
+                        f"## Student's Code ({language})\n```\n{code_snapshot}\n```"
+                    ),
+                },
+            ],
+        )
+
+        raw = response.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1]
+        if raw.endswith("```"):
+            raw = raw[: raw.rfind("```")]
+        raw = raw.strip()
+
+        parsed = _json.loads(raw)
+        compliant = parsed.get("compliant", True)
+        message = parsed.get("message", "")
+        missed = parsed.get("missed_requirements", [])
+
+        return {
+            "spec_compliant": compliant,
+            "error_message": message if not compliant else "",
+            "test_results": state.get("test_results", "") + (
+                f"\n\n[Spec Enforcer] {'Compliant' if compliant else 'Non-compliant'}: {message}"
+                + (f"\nMissed: {', '.join(missed)}" if missed else "")
+            ),
+        }
+
+    except Exception as exc:
+        _logger.error("spec_enforcer_node failed: %s", exc)
+        return {
+            "spec_compliant": True,
+            "error_message": "",
+        }
