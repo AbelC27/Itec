@@ -5,17 +5,27 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile, UserRole } from "@/types/database";
 
-type ProfileIdentity = Pick<Profile, "id" | "username" | "avatar_color_hex" | "role">;
+type ProfileIdentity = Pick<
+  Profile,
+  "id" | "username" | "avatar_color_hex" | "role" | "status" | "created_at" | "updated_at"
+>;
+
+type ProfileUpdatePayload = Partial<
+  Pick<ProfileIdentity, "username" | "avatar_color_hex" | "status">
+>;
 
 interface UseProfileReturn {
   profile: ProfileIdentity | null;
   isLoading: boolean;
+  isUpdating: boolean;
+  updateProfile: (updates: ProfileUpdatePayload) => Promise<{ error: string | null }>;
 }
 
 export function useProfile(): UseProfileReturn {
   const { user } = useAuth();
   const [profile, setProfile] = useState<ProfileIdentity | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -31,7 +41,7 @@ export function useProfile(): UseProfileReturn {
         const supabase = createClient();
         const { data, error } = await supabase
           .from("profiles")
-          .select("id, username, avatar_color_hex, role")
+          .select("id, username, avatar_color_hex, role, status, created_at, updated_at")
           .eq("id", user!.id)
           .single();
 
@@ -46,6 +56,9 @@ export function useProfile(): UseProfileReturn {
             username: user!.email ?? user!.id,
             avatar_color_hex: "#6B7280",
             role: fallbackRole,
+            status: "online",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
           });
         } else {
           const role: UserRole =
@@ -55,6 +68,15 @@ export function useProfile(): UseProfileReturn {
             username: data.username,
             avatar_color_hex: data.avatar_color_hex,
             role,
+            status:
+              data.status === "online" ||
+              data.status === "offline" ||
+              data.status === "away" ||
+              data.status === "busy"
+                ? data.status
+                : "online",
+            created_at: data.created_at,
+            updated_at: data.updated_at,
           });
         }
       } catch {
@@ -65,6 +87,9 @@ export function useProfile(): UseProfileReturn {
           username: user!.email ?? user!.id,
           avatar_color_hex: "#6B7280",
           role: "student",
+          status: "online",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         });
       } finally {
         if (!cancelled) {
@@ -81,5 +106,51 @@ export function useProfile(): UseProfileReturn {
     };
   }, [user]);
 
-  return { profile, isLoading };
+  async function updateProfile(updates: ProfileUpdatePayload): Promise<{ error: string | null }> {
+    if (!user) {
+      return { error: "Not authenticated" };
+    }
+
+    setIsUpdating(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("profiles")
+        .update(updates)
+        .eq("id", user.id)
+        .select("id, username, avatar_color_hex, role, status, created_at, updated_at")
+        .single();
+
+      if (error || !data) {
+        return { error: error?.message ?? "Could not update profile" };
+      }
+
+      const role: UserRole =
+        data.role === "teacher" || data.role === "student" ? data.role : "student";
+
+      setProfile({
+        id: data.id,
+        username: data.username,
+        avatar_color_hex: data.avatar_color_hex,
+        role,
+        status:
+          data.status === "online" ||
+          data.status === "offline" ||
+          data.status === "away" ||
+          data.status === "busy"
+            ? data.status
+            : "online",
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+      });
+
+      return { error: null };
+    } catch {
+      return { error: "Unexpected error updating profile" };
+    } finally {
+      setIsUpdating(false);
+    }
+  }
+
+  return { profile, isLoading, isUpdating, updateProfile };
 }
