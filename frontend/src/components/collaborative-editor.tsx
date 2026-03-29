@@ -787,7 +787,7 @@ function EditorWithYjs({
         orientation="horizontal"
         className="flex min-h-0 flex-1 overflow-hidden"
       >
-        <Panel defaultSize={72} minSize={45} className="min-w-0">
+        <Panel defaultSize={66} minSize={40} className="min-w-0">
           <section className="flex h-full min-w-0 flex-col bg-background">
           {/* ── Status Bar ─────────────────────────────────── */}
           <div data-ragequit="status-bar" className="flex items-center justify-between gap-4 px-6 py-2.5 bg-secondary/60 border-b border-border">
@@ -1159,21 +1159,21 @@ function EditorWithYjs({
         </Panel>
         <ResizeHandle direction="horizontal" className="hidden lg:flex" />
         <Panel
-          defaultSize={28}
-          minSize={20}
-          className="hidden min-w-[300px] max-w-[45%] lg:flex"
+          defaultSize={36}
+          minSize={26}
+          className="hidden min-w-[380px] max-w-[56%] lg:flex"
         >
-          <aside className="flex h-full flex-col border-l border-border bg-background/70 backdrop-blur-xl">
+          <aside className="flex h-full w-full flex-col border-l border-border bg-gradient-to-b from-background/95 via-background/90 to-background/75 shadow-2xl backdrop-blur-xl">
           {/* Chat session tabs */}
-          <div className="px-3 py-2 border-b border-border flex flex-col gap-1 max-h-[140px] overflow-y-auto">
+          <div className="px-4 py-3 border-b border-border/90 flex flex-col gap-1.5 max-h-[180px] overflow-y-auto">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground font-bold">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">
                 Chats
               </span>
               <button
                 type="button"
                 onClick={handleNewChat}
-                className="bg-transparent border border-blue-500/30 rounded px-1.5 py-0.5 text-blue-400 text-[10px] cursor-pointer flex items-center gap-0.5 hover:bg-blue-500/10 transition-colors"
+                className="bg-transparent border border-blue-500/30 rounded-md px-2 py-1 text-blue-400 text-[10px] cursor-pointer flex items-center gap-1 hover:bg-blue-500/10 transition-colors"
               >
                 <Plus className="h-3 w-3" />
                 New
@@ -1187,7 +1187,7 @@ function EditorWithYjs({
               chatSessions.map((session) => (
                 <div
                   key={session.id}
-                  className={`flex items-center justify-between px-2 py-1 rounded-md cursor-pointer text-[10px] transition-all duration-150 ${
+                  className={`flex items-center justify-between px-2.5 py-1.5 rounded-md cursor-pointer text-[11px] transition-all duration-150 ${
                     activeSessionId === session.id
                       ? "bg-blue-500/10 border border-blue-500/20 text-blue-400"
                       : "bg-transparent border border-transparent text-muted-foreground hover:bg-secondary"
@@ -1213,8 +1213,8 @@ function EditorWithYjs({
           </div>
 
           {/* AI Header */}
-          <div className="p-6 border-b border-border flex flex-col items-center gap-4">
-            <div className="relative w-24 h-24 rounded-full border-4 border-blue-500/20 p-1.5 overflow-hidden">
+          <div className="p-5 border-b border-border/90 flex flex-col items-center gap-3 bg-secondary/10">
+            <div className="relative w-20 h-20 rounded-full border-4 border-blue-500/20 p-1.5 overflow-hidden">
               <img
                 alt="AI Avatar"
                 src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYjJj3xmWNxsfNv-m0aOn2bsxrnEL3iuAD_V4xFEQ8RcaT2AkNLE23zaIJYFBO6rhSR6IQsJOU5psJvf3zpjwr8XSxqeq2YBs-1muiDxq-SXjC_aWLcZezZBabV7yfw4vu6zsT-Ad1u6uaqXDL2ZUw985HG4CSPssY4RYwjNF8oTZIANgsHpzEc6RLT4feLAGTekgH-BKVmH0s7fM2G1dfyeCXCDUDqZSDXVRf7RO0RMTHTvXzKe94Dshsm8pYz5C3qJS_5hHP-yY"
@@ -1223,15 +1223,17 @@ function EditorWithYjs({
               <div className="absolute bottom-0.5 right-0.5 w-4.5 h-4.5 rounded-full bg-emerald-400 border-[3px] border-background" />
             </div>
             <div className="text-center">
-              <div className="text-[11px] font-extrabold tracking-[0.22em] uppercase">iTECity AI</div>
-              <div className="text-[10px] font-mono text-emerald-400 tracking-widest">STATUS: READY</div>
+              <div className="text-xs font-extrabold tracking-[0.24em] uppercase">iTECity AI</div>
+              <div className="text-[11px] font-mono text-emerald-400 tracking-widest">STATUS: READY</div>
             </div>
           </div>
 
           {/* Chat Messages */}
-          <div className="flex-1 overflow-auto p-6 flex flex-col gap-4">
+          <div className="flex-1 overflow-auto p-4 flex flex-col gap-3">
             {chatMessages.length === 0 ? (
-              <div className="max-w-[95%] p-3 rounded-2xl text-xs leading-relaxed border border-border">No messages yet.</div>
+              <div className="w-full p-4 rounded-2xl text-[14px] leading-relaxed border border-border bg-secondary/25">
+                No messages yet.
+              </div>
             ) : (
               chatMessages.map((message) => {
                 const isUser = message.role === "user";
@@ -1240,12 +1242,15 @@ function EditorWithYjs({
                 return (
                   <div
                     key={message.id}
-                    className={`max-w-[95%] p-3 rounded-2xl text-xs leading-relaxed border ${
+                    className={`w-full p-4 rounded-2xl text-[14px] leading-relaxed border ${
                       isUser
-                        ? "ml-auto bg-secondary border-border"
+                        ? "bg-secondary border-border"
                         : "bg-blue-950/30 border-blue-500/20"
                     }`}
                   >
+                    <div className={`mb-1.5 text-[10px] uppercase tracking-widest ${isUser ? "text-muted-foreground" : "text-blue-300"}`}>
+                      {isUser ? "You" : "iTECity AI"}
+                    </div>
                     {isUser || !parts ? (
                       message.content
                     ) : (
@@ -1315,21 +1320,21 @@ function EditorWithYjs({
               })
             )}
             {isSending && (
-              <div className="max-w-[95%] p-3 rounded-2xl text-xs leading-relaxed border border-border opacity-60">
+              <div className="w-full p-4 rounded-2xl text-[14px] leading-relaxed border border-border bg-secondary/25 opacity-70">
                 Thinking…
               </div>
             )}
           </div>
 
           {/* Chat Input */}
-          <div className="p-5 border-t border-border bg-secondary/30">
-            <div className="bg-secondary rounded-2xl p-4 border border-border">
+          <div className="p-3 border-t border-border/90 bg-secondary/30">
+            <div className="w-full bg-secondary/95 rounded-2xl p-3 border border-border shadow-sm">
               <textarea
                 placeholder="Ask iTECity AI..."
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
                 onKeyDown={handleChatKeyDown}
-                className="w-full min-h-[80px] resize-none border-none bg-transparent text-foreground text-[11px] font-sans outline-none"
+                className="w-full min-h-[58px] resize-none border-none bg-transparent text-foreground text-[12px] font-sans leading-relaxed outline-none"
               ></textarea>
               <div className="flex items-center justify-between mt-3">
                 <div className="flex gap-3">
