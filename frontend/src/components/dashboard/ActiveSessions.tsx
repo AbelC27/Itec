@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ArrowUpRight, Code2, Radio, Users } from "lucide-react";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,12 +10,15 @@ type ActiveSessionsProps = {
     sessions: ActiveSession[];
     isLoading?: boolean;
     error?: string | null;
+    /** Open a session in the Live Telemetry / observation view (e.g. document id). */
+    onSelectSession?: (session: ActiveSession) => void;
 };
 
 export default function ActiveSessions({
     sessions,
     isLoading = false,
     error = null,
+    onSelectSession,
 }: ActiveSessionsProps) {
     const hasSessions = sessions.length > 0;
 
@@ -28,8 +32,8 @@ export default function ActiveSessions({
                             Active Collaborative Sessions
                         </h2>
                     </div>
-                    <Button variant="ghost" size="sm" className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                        View All
+                    <Button variant="ghost" size="sm" asChild className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                        <Link href="/homepage">View All</Link>
                     </Button>
                 </div>
             </CardHeader>
@@ -63,7 +67,21 @@ export default function ActiveSessions({
                             return (
                                 <div
                                     key={session.id}
-                                    className="rounded-xl border border-white/10 bg-secondary/50 p-4 hover:bg-accent transition-all duration-200"
+                                    role={onSelectSession ? "button" : undefined}
+                                    tabIndex={onSelectSession ? 0 : undefined}
+                                    onClick={() => onSelectSession?.(session)}
+                                    onKeyDown={(e) => {
+                                        if (!onSelectSession) return;
+                                        if (e.key === "Enter" || e.key === " ") {
+                                            e.preventDefault();
+                                            onSelectSession(session);
+                                        }
+                                    }}
+                                    className={`rounded-xl border border-white/10 bg-secondary/50 p-4 transition-all duration-200 ${
+                                        onSelectSession
+                                            ? "cursor-pointer hover:bg-accent focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
+                                            : "hover:bg-accent"
+                                    }`}
                                 >
                                     <div className="flex items-start justify-between gap-4">
                                         <div className="flex items-start gap-4">
@@ -92,7 +110,12 @@ export default function ActiveSessions({
                                         </div>
                                         <button
                                             type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onSelectSession?.(session);
+                                            }}
                                             className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-background text-muted-foreground transition hover:text-foreground"
+                                            aria-label="Open live view"
                                         >
                                             <ArrowUpRight className="h-4 w-4" />
                                         </button>

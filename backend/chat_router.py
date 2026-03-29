@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api/chats", tags=["chats"])
 class CreateSessionRequest(BaseModel):
     document_id: str
     title: str = "New Chat"
+    user_id: str = ""
 
 
 class SaveMessageRequest(BaseModel):
@@ -21,17 +22,18 @@ class SaveMessageRequest(BaseModel):
 
 
 @router.get("/{document_id}/sessions")
-async def list_sessions(document_id: str) -> list[dict]:
-    """List all chat sessions for a document, newest first."""
+async def list_sessions(document_id: str, user_id: str | None = None) -> list[dict]:
+    """List chat sessions for a document, optionally filtered by user_id."""
     try:
         client = get_supabase_client()
-        response = (
+        query = (
             client.table("ai_chat_sessions")
             .select("*")
             .eq("document_id", document_id)
-            .order("updated_at", desc=True)
-            .execute()
         )
+        if user_id:
+            query = query.eq("user_id", user_id)
+        response = query.order("updated_at", desc=True).execute()
         return response.data
     except Exception as exc:
         logger.error("Failed to list chat sessions: %s", exc)
@@ -43,11 +45,15 @@ async def create_session(document_id: str, body: CreateSessionRequest) -> dict:
     """Create a new chat session for a document."""
     try:
         client = get_supabase_client()
-        response = (
-            client.table("ai_chat_sessions")
-            .insert({"document_id": document_id, "title": body.title})
-            .execute()
-        )
+        record: dict = {"document_id": document_id, "title": body.title}
+        if body.user_id:
+            record["user_id"] = body.user_id
+        try:
+            response = client.table("ai_chat_sessions").insert(record).execute()
+        except Exception:
+            # Fallback: user_id column might not exist yet
+            record.pop("user_id", None)
+            response = client.table("ai_chat_sessions").insert(record).execute()
         return response.data[0]
     except Exception as exc:
         logger.error("Failed to create chat session: %s", exc)

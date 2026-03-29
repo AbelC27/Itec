@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -141,11 +141,13 @@ export type Database = {
           code_snapshot: string
           created_at: string
           document_id: string
+          execution_status: string
           execution_time: number
           id: string
           language: string
           mem_limit: string
           nano_cpus: number
+          session_id: string
           stderr: string
           stdout: string
         }
@@ -153,11 +155,13 @@ export type Database = {
           code_snapshot: string
           created_at?: string
           document_id: string
+          execution_status?: string
           execution_time: number
           id?: string
           language: string
           mem_limit: string
           nano_cpus: number
+          session_id?: string
           stderr?: string
           stdout?: string
         }
@@ -165,11 +169,13 @@ export type Database = {
           code_snapshot?: string
           created_at?: string
           document_id?: string
+          execution_status?: string
           execution_time?: number
           id?: string
           language?: string
           mem_limit?: string
           nano_cpus?: number
+          session_id?: string
           stderr?: string
           stdout?: string
         }
@@ -180,6 +186,7 @@ export type Database = {
           avatar_color_hex: string
           created_at: string
           id: string
+          role: string
           status: string
           updated_at: string
           username: string
@@ -188,6 +195,7 @@ export type Database = {
           avatar_color_hex?: string
           created_at?: string
           id: string
+          role?: string
           status?: string
           updated_at?: string
           username: string
@@ -196,6 +204,7 @@ export type Database = {
           avatar_color_hex?: string
           created_at?: string
           id?: string
+          role?: string
           status?: string
           updated_at?: string
           username?: string

@@ -244,6 +244,15 @@ export type AiChatRequest = {
   message: string;
   code: string;
   history?: { role: string; content: string }[];
+  /** Drives Socratic (student) vs full assistant (teacher) system prompts. */
+  user_role?: "student" | "teacher";
+};
+
+export type ExecutionTelemetryAlert = {
+  kind: string;
+  session_id: string;
+  consecutive_failures: number;
+  message: string;
 };
 
 export type AiChatResponse = {
@@ -257,6 +266,14 @@ export async function sendAiChat(
   return fetchJson<AiChatResponse>("/api/ai/chat", {
     method: "POST",
     body: JSON.stringify(data),
+    ...init,
+  });
+}
+
+export async function getExecutionTelemetryAlerts(
+  init?: RequestInit
+): Promise<ExecutionTelemetryAlert[]> {
+  return fetchJson<ExecutionTelemetryAlert[]>("/api/ai/telemetry/execution-alerts", {
     ...init,
   });
 }
@@ -281,19 +298,22 @@ export type AiChatMessageRecord = {
 
 export async function getChatSessions(
     documentId: string,
+    userId?: string,
     init?: RequestInit
 ): Promise<AiChatSession[]> {
-    return fetchJson<AiChatSession[]>(`/api/chats/${documentId}/sessions`, init);
+    const params = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+    return fetchJson<AiChatSession[]>(`/api/chats/${documentId}/sessions${params}`, init);
 }
 
 export async function createChatSession(
     documentId: string,
     title = "New Chat",
+    userId?: string,
     init?: RequestInit
 ): Promise<AiChatSession> {
     return fetchJson<AiChatSession>(`/api/chats/${documentId}/sessions`, {
         method: "POST",
-        body: JSON.stringify({ document_id: documentId, title }),
+        body: JSON.stringify({ document_id: documentId, title, user_id: userId ?? "" }),
         ...init,
     });
 }

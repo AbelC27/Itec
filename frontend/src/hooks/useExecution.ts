@@ -53,7 +53,15 @@ export interface UseExecutionReturn {
  * close with a 1-second delay. `execute()` sends `{ language, code }` over
  * the existing connection instead of opening a new one.
  */
-export function useExecution(documentId: string): UseExecutionReturn {
+export function useExecution(
+  documentId: string,
+  options?: { enabled?: boolean; listenOnly?: boolean; userId?: string; username?: string }
+): UseExecutionReturn {
+  const enabled = options?.enabled !== false;
+  const listenOnly = options?.listenOnly === true;
+  const shouldConnect = enabled || listenOnly;
+  const userId = options?.userId ?? "";
+  const username = options?.username ?? "";
   const [isRunning, setIsRunning] = useState(false);
   const [output, setOutput] = useState("");
   const [stderrStr, setStderrStr] = useState("");
@@ -74,12 +82,13 @@ export function useExecution(documentId: string): UseExecutionReturn {
 
   // ── Persistent WebSocket lifecycle ─────────────────────────────────
   useEffect(() => {
+    if (!shouldConnect) return;
     intentionalCloseRef.current = false;
 
     let wsUrl: string;
     try {
       const baseUrl = getWsBaseUrl();
-      wsUrl = `${baseUrl}/ws/execute/${documentId}`;
+      wsUrl = `${baseUrl}/ws/execute/${documentId}?user_id=${encodeURIComponent(userId)}&username=${encodeURIComponent(username)}`;
     } catch {
       // Env var missing — nothing to connect to.
       setError("WebSocket URL is not configured. Set NEXT_PUBLIC_WS_URL.");
@@ -178,11 +187,12 @@ export function useExecution(documentId: string): UseExecutionReturn {
         wsRef.current = null;
       }
     };
-  }, [documentId]);
+  }, [documentId, shouldConnect, userId, username]);
 
   // ── execute(): send over the existing persistent socket ────────────
   const execute = useCallback(
     (language: string, code: string) => {
+      if (!enabled || listenOnly) return;
       // Reset output state
       setOutput("");
       setStderrStr("");
@@ -203,7 +213,7 @@ export function useExecution(documentId: string): UseExecutionReturn {
         setError("Connection unavailable. Reconnecting\u2026");
       }
     },
-    []
+    [enabled, listenOnly]
   );
 
   const clear = useCallback(() => {

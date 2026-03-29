@@ -1,9 +1,13 @@
 import json
 import logging
 import os
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
+
+from db import get_supabase_client
 
 load_dotenv()
 
@@ -176,11 +180,10 @@ async def explain_error(language: str, code: str, stderr: str) -> dict:
         return _safe_error_fix(
             "Unable to analyze this error automatically. Please review the stderr output above."
         )
-        return "Unable to analyze this error automatically. Please review the stderr output above."
 
 
-# System prompt for AI chat assistant
-CHAT_SYSTEM_PROMPT = (
+# Teacher / general: full assistant (can suggest complete files when appropriate)
+CHAT_SYSTEM_PROMPT_TEACHER = (
     "You are a helpful coding assistant embedded in a collaborative code editor called iTECify. "
     "The user may share code with you. Help them understand, debug, improve, or explain their code. "
     "Be concise and practical.\n\n"
@@ -190,8 +193,85 @@ CHAT_SYSTEM_PROMPT = (
     "Add a brief explanation before the code block describing what you changed."
 )
 
+# Student: Socratic tutor — no full solutions
+CHAT_SYSTEM_PROMPT_STUDENT = (
+    "You are a Socratic high school computer science tutor in a collaborative editor called iTECify. "
+    "Your job is to deepen understanding, not to complete assignments for the student.\n\n"
+    "Rules:\n"
+    "- Do NOT write full solutions, complete programs, or copy-paste-ready homework answers.\n"
+    "- Do NOT output multi-line code blocks that solve the exercise. At most one or two lines as an "
+    "illustration of a concept is acceptable if clearly labeled as an example, not the answer.\n"
+    "- If the student shares errors or failing code, ask guiding questions: what line failed, what did "
+    "they expect vs what happened, what have they tried.\n"
+    "- Point them toward concepts (types, loops, edge cases) and debugging steps rather than fixes.\n"
+    "- If they insist on a direct answer, politely refuse and offer hints or a smaller conceptual nudge.\n"
+    "- Be encouraging, clear, and age-appropriate for high school CS."
+)
 
-async def chat(message: str, code: str, history: list[dict] | None = None) -> str:
+
+def flag_repeated_execution_failures(
+    days: int = 30,
+    min_consecutive_failures: int = 4,
+) -> list[dict]:
+    """
+    Scan recent execution_history and flag session_ids whose most recent runs are
+    consecutive failures with count **strictly greater than 3** (default: 4+ in a row).
+
+    Returns a list of alert dicts suitable for the Live Telemetry dashboard.
+    """
+    if min_consecutive_failures < 2:
+        min_consecutive_failures = 2
+
+    try:
+        client = get_supabase_client()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        resp = (
+            client.table("execution_history")
+            .select("session_id, execution_status, created_at")
+            .gte("created_at", cutoff)
+            .execute()
+        )
+    except Exception as exc:
+        logger.warning("flag_repeated_execution_failures query failed (%s)", exc)
+        return []
+
+    rows = resp.data or []
+    by_session: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        by_session[str(row["session_id"])].append(row)
+
+    alerts: list[dict] = []
+    for session_id, runs in by_session.items():
+        ordered = sorted(runs, key=lambda r: r["created_at"], reverse=True)
+        streak = 0
+        for r in ordered:
+            if r.get("execution_status") == "failed":
+                streak += 1
+            else:
+                break
+        if streak >= min_consecutive_failures:
+            alerts.append(
+                {
+                    "kind": "repeated_execution_failures",
+                    "session_id": session_id,
+                    "consecutive_failures": streak,
+                    "message": (
+                        f"Student session {session_id[:12]}… has {streak} failed runs in a row "
+                        f"(threshold: more than 3)."
+                    ),
+                }
+            )
+
+    alerts.sort(key=lambda a: a["consecutive_failures"], reverse=True)
+    return alerts
+
+
+async def chat(
+    message: str,
+    code: str,
+    history: list[dict] | None = None,
+    user_role: str = "student",
+) -> str:
     """
     Send a chat message (with optional code context and conversation history) to the LLM.
 
@@ -204,7 +284,12 @@ async def chat(message: str, code: str, history: list[dict] | None = None) -> st
     if code and code.strip():
         user_content = f"{message}\n\nCurrent code:\n```\n{code}\n```"
 
-    messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+    system_prompt = (
+        CHAT_SYSTEM_PROMPT_TEACHER
+        if user_role == "teacher"
+        else CHAT_SYSTEM_PROMPT_STUDENT
+    )
+    messages = [{"role": "system", "content": system_prompt}]
 
     # Include conversation history for multi-turn context
     if history:

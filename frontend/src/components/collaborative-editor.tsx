@@ -15,6 +15,7 @@ import {
 } from "../lib/api";
 import {getChatSessions, createChatSession, deleteChatSession, getChatMessages, saveChatMessage } from "../lib/api";
 import type { AiChatSession } from "../lib/api";
+import type { UserRole } from "@/types/database";
 import type * as monaco from "monaco-editor";
 import {
   Loader2, Play, X, Minus, ChevronRight, Plus, Paperclip,
@@ -49,6 +50,8 @@ interface CollaborativeEditorProps {
   language?: string;
   initialContent?: string;
   onSnapshotChange?: (content: string) => void;
+  /** Teacher observation mode: Yjs sync stays live; local edits are blocked. */
+  readOnly?: boolean;
 }
 
 type ChatMessage = {
@@ -71,6 +74,7 @@ export default function CollaborativeEditor({
   language = "python",
   initialContent = "",
   onSnapshotChange,
+  readOnly = false,
 }: CollaborativeEditorProps) {
   const { profile, isLoading } = useProfile();
 
@@ -84,12 +88,13 @@ export default function CollaborativeEditor({
 
   return (
     <EditorWithYjs
-      key={documentId}
+      key={`${documentId}-${readOnly ? "ro" : "rw"}`}
       documentId={documentId}
       profile={profile}
       language={language}
       initialContent={initialContent}
       onSnapshotChange={onSnapshotChange}
+      readOnly={readOnly}
     />
   );
 }
@@ -100,12 +105,14 @@ function EditorWithYjs({
   language,
   initialContent,
   onSnapshotChange,
+  readOnly = false,
 }: {
   documentId: string;
-  profile: { id: string; username: string; avatar_color_hex: string };
+  profile: { id: string; username: string; avatar_color_hex: string; role: UserRole };
   language: string;
   initialContent: string;
   onSnapshotChange?: (content: string) => void;
+  readOnly?: boolean;
 }) {
   const yjsState = useYjsSupabase(documentId, profile);
   const bindingRef = useRef<MonacoBinding | null>(null);
@@ -133,7 +140,7 @@ function EditorWithYjs({
     let cancelled = false;
     (async () => {
       try {
-        const sessions = await getChatSessions(documentId);
+        const sessions = await getChatSessions(documentId, profile.id);
         if (cancelled) return;
         setChatSessions(sessions);
         if (sessions.length > 0) {
@@ -146,7 +153,7 @@ function EditorWithYjs({
       }
     })();
     return () => { cancelled = true; };
-  }, [documentId]);
+  }, [documentId, readOnly]);
 
   // Load messages when active session changes
   useEffect(() => {
@@ -176,7 +183,7 @@ function EditorWithYjs({
 
   const handleNewChat = useCallback(async () => {
     try {
-      const session = await createChatSession(documentId);
+      const session = await createChatSession(documentId, undefined, profile.id);
       setChatSessions((prev) => [session, ...prev]);
       setActiveSessionId(session.id);
       setChatMessages([]);
@@ -201,8 +208,21 @@ function EditorWithYjs({
   // Hook up history
   const historyHook = useHistory(documentId);
 
-  // Execution hook
-  const execution = useExecution(documentId);
+  // Poll execution history in read-only mode so teacher sees latest runs
+  useEffect(() => {
+    if (!readOnly) return;
+    const id = window.setInterval(() => historyHook.refresh(), 4000);
+    return () => window.clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnly, documentId]);
+
+  // Execution hook (listen-only in teacher observation mode — receives broadcasts but cannot execute)
+  const execution = useExecution(documentId, {
+    enabled: true,
+    listenOnly: readOnly,
+    userId: profile.id,
+    username: profile.username,
+  });
 
   // Confetti easter egg
   useEffect(() => {
@@ -329,7 +349,13 @@ function EditorWithYjs({
         return;
       }
 
-      applyCloudContent(initialContent);
+      // Yjs room is empty — seed from the DB snapshot (initialContent).
+      // In read-only/observation mode we still insert so the teacher sees
+      // the latest pushed content even when the student hasn't opened the
+      // web editor yet (Yjs room may be cold).
+      if (initialContent) {
+        applyCloudContent(initialContent);
+      }
     };
 
     const handleYTextChange = () => {
@@ -377,7 +403,15 @@ function EditorWithYjs({
 
   const handleEditorMount: OnMount = useCallback((editorInstance) => {
     setEditor(editorInstance);
-  }, []);
+    // Use domReadOnly instead of readOnly so Yjs can still update the model programmatically
+    // while blocking user keyboard input in observation mode.
+    editorInstance.updateOptions({ readOnly: false, domReadOnly: readOnly });
+  }, [readOnly]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.updateOptions({ readOnly: false, domReadOnly: readOnly });
+  }, [editor, readOnly]);
 
   const handleCodeChange = useCallback(
     (newCode: string) => {
@@ -400,6 +434,7 @@ function EditorWithYjs({
   );
 
   const handlePushToCloud = useCallback(async () => {
+    if (readOnly) return;
     if (!yjsState) {
       setCloudSyncState("error");
       setCloudSyncMessage("Editor sync is still connecting.");
@@ -438,9 +473,29 @@ function EditorWithYjs({
         err instanceof Error ? err.message : "Failed to push changes to the cloud."
       );
     }
-  }, [code, documentId, editor, onSnapshotChange, yjsState]);
+  }, [code, documentId, editor, onSnapshotChange, readOnly, yjsState]);
+
+  // Auto-save: push to DB every 3s when student has local changes (not in read-only mode)
+  useEffect(() => {
+    if (readOnly) return;
+    const intervalId = window.setInterval(async () => {
+      const currentContent = editor?.getValue() ?? code;
+      if (currentContent && currentContent !== lastCloudContentRef.current) {
+        try {
+          // Pull latest base first to avoid 409 conflicts
+          const { content: remoteContent } = await pullDocumentContent(documentId);
+          await pushDocumentContent(documentId, currentContent, remoteContent);
+          lastCloudContentRef.current = currentContent;
+        } catch {
+          // Silent fail — next interval will retry
+        }
+      }
+    }, 3000);
+    return () => window.clearInterval(intervalId);
+  }, [readOnly, documentId, editor, code]);
 
   const handlePullFromCloud = useCallback(async () => {
+    if (readOnly) return;
     if (!yjsState) {
       setCloudSyncState("error");
       setCloudSyncMessage("Editor sync is still connecting.");
@@ -474,9 +529,10 @@ function EditorWithYjs({
         err instanceof Error ? err.message : "Failed to pull changes from the cloud."
       );
     }
-  }, [code, documentId, editor, onSnapshotChange, yjsState]);
+  }, [code, documentId, editor, onSnapshotChange, readOnly, yjsState]);
 
   const handleRunCode = useCallback(() => {
+    if (readOnly) return;
     const currentCode = editor?.getValue() ?? code;
     if (!currentCode.trim()) return;
 
@@ -489,7 +545,7 @@ function EditorWithYjs({
     setTimeout(() => {
       historyHook.refresh();
     }, 2000);
-  }, [editor, code, language, execution, historyHook]);
+  }, [editor, code, language, execution, historyHook, readOnly]);
 
   const handleSendChat = useCallback(async () => {
     const trimmed = chatInput.trim();
@@ -499,7 +555,7 @@ function EditorWithYjs({
     let sessionId = activeSessionId;
     if (!sessionId) {
       try {
-        const session = await createChatSession(documentId, trimmed.slice(0, 40));
+        const session = await createChatSession(documentId, trimmed.slice(0, 40), profile.id);
         setChatSessions((prev) => [session, ...prev]);
         setActiveSessionId(session.id);
         sessionId = session.id;
@@ -537,6 +593,7 @@ function EditorWithYjs({
         message: trimmed,
         code: editor?.getValue() ?? code,
         history,
+        user_role: profile.role,
       });
 
       const assistantMessage: ChatMessage = {
@@ -573,7 +630,7 @@ function EditorWithYjs({
     } finally {
       setIsSending(false);
     }
-  }, [chatInput, editor, code, activeSessionId, documentId, chatMessages]);
+  }, [chatInput, editor, code, activeSessionId, documentId, chatMessages, profile.role, readOnly]);
 
   const handleChatKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -615,12 +672,41 @@ function EditorWithYjs({
               : "Pulling";
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-muted-foreground font-sans">
+    <div className="h-full flex flex-col bg-background text-muted-foreground font-sans">
       <main className="flex flex-1 min-h-0 overflow-hidden">
         <section className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
           {/* ── Status Bar ─────────────────────────────────── */}
           <div className="flex items-center justify-between gap-4 px-6 py-2.5 bg-secondary/60 border-b border-border">
             <div className="flex items-center gap-3 flex-wrap">
+              {readOnly ? (
+                <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-amber-300 border border-amber-500/40 bg-amber-500/10 px-2 py-1 rounded-lg">
+                  Live view · read-only
+                </div>
+              ) : null}
+              {readOnly ? (
+                <div className={`flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest px-2 py-1 rounded-lg border ${
+                  execution.isRunning
+                    ? "text-blue-400 border-blue-500/40 bg-blue-500/10"
+                    : "text-emerald-400 border-emerald-500/40 bg-emerald-500/10"
+                }`}>
+                  {execution.isRunning ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Student Running
+                    </>
+                  ) : execution.output ? (
+                    <>
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 inline-block" />
+                      Student Active
+                    </>
+                  ) : (
+                    <>
+                      <span className="h-2 w-2 rounded-full bg-muted-foreground inline-block" />
+                      Student Idle
+                    </>
+                  )}
+                </div>
+              ) : null}
               <div className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground bg-secondary px-2 py-1 rounded-lg">
                 {execution.isScanning ? (
                   <>
@@ -659,7 +745,7 @@ function EditorWithYjs({
               <button
                 type="button"
                 onClick={handlePullFromCloud}
-                disabled={!isSyncReady || isSyncBusy}
+                disabled={readOnly || !isSyncReady || isSyncBusy}
                 className="flex items-center gap-1.5 border-none rounded-lg px-4 py-2 text-[11px] uppercase tracking-widest font-extrabold bg-slate-800 text-slate-200 cursor-pointer transition-all duration-150 hover:bg-slate-700 disabled:opacity-60 disabled:cursor-not-allowed"
                 title={cloudSyncMessage}
               >
@@ -673,7 +759,7 @@ function EditorWithYjs({
               <button
                 type="button"
                 onClick={handlePushToCloud}
-                disabled={!isSyncReady || isSyncBusy || cloudSyncState === "synced"}
+                disabled={readOnly || !isSyncReady || isSyncBusy || cloudSyncState === "synced"}
                 className={`flex items-center gap-1.5 border-none rounded-lg px-4 py-2 text-[11px] uppercase tracking-widest font-extrabold text-slate-50 cursor-pointer transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed ${
                   cloudSyncState === "conflict"
                     ? "bg-blue-700 hover:bg-blue-600"
@@ -693,7 +779,7 @@ function EditorWithYjs({
               <button
                 type="button"
                 onClick={handleRunCode}
-                disabled={execution.isRunning}
+                disabled={readOnly || execution.isRunning}
                 className="flex items-center gap-1.5 border-none rounded-lg px-4 py-2 text-[11px] uppercase tracking-widest font-extrabold bg-primary text-primary-foreground cursor-pointer transition-all duration-150 hover:shadow-[0_0_20px_rgba(250,250,250,0.15)] disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {execution.isRunning ? (
@@ -725,8 +811,10 @@ function EditorWithYjs({
                 onMount={handleEditorMount}
                 onChange={handleMonacoChange}
                 options={{
+                  readOnly: false,
+                  domReadOnly: readOnly,
                   minimap: { enabled: false },
-                  quickSuggestions: true,
+                  quickSuggestions: !readOnly,
                   suggestOnTriggerCharacters: true,
                   parameterHints: { enabled: true },
                   wordBasedSuggestions: "currentDocument",
@@ -843,6 +931,26 @@ function EditorWithYjs({
                     <div key={`${index}-${line}`}>{line}</div>
                   ))}
                 </div>
+              ) : readOnly && historyHook.history.length > 0 ? (
+                <div className="mt-2">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">
+                    Latest execution
+                  </div>
+                  {historyHook.history[0].stdout && (
+                    <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs text-slate-200 opacity-85">
+                      {historyHook.history[0].stdout}
+                    </pre>
+                  )}
+                  {historyHook.history[0].stderr && (
+                    <div className="mt-2 px-3 py-2 rounded-md bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-mono">
+                      {historyHook.history[0].stderr}
+                    </div>
+                  )}
+                  <div className={`mt-2 text-[11px] font-mono ${!historyHook.history[0].stderr ? "text-emerald-400" : "text-red-400"}`}>
+                    {!historyHook.history[0].stderr ? "✓ " : "✗ "}
+                    {historyHook.history[0].execution_time.toFixed(3)}s · {new Date(historyHook.history[0].created_at).toLocaleTimeString()}
+                  </div>
+                </div>
               ) : (
                 <div className="opacity-70 mt-2">
                   <div>No terminal output yet.</div>
@@ -886,12 +994,14 @@ function EditorWithYjs({
                         </div>
                         <button
                           type="button"
+                          disabled={readOnly}
                           onClick={() => {
+                            if (readOnly) return;
                             if (editor && confirm("Restore this code snapshot? Current editor contents will be overwritten.")) {
                               editor.setValue(entry.code_snapshot);
                             }
                           }}
-                          className="px-2 py-1 rounded bg-blue-500/10 border border-blue-500/30 text-blue-300 text-[10px] uppercase cursor-pointer transition-all duration-200 hover:bg-blue-500/20"
+                          className="px-2 py-1 rounded bg-blue-500/10 border border-blue-500/30 text-blue-300 text-[10px] uppercase cursor-pointer transition-all duration-200 hover:bg-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           Restore Code
                         </button>
