@@ -33,6 +33,7 @@ class ChatRequest(BaseModel):
     message: str
     code: str = ""
     history: list[ChatHistoryMessage] = []
+    user_role: str = "student"
 
 
 class ChatResponse(BaseModel):

@@ -55,9 +55,13 @@ export interface UseExecutionReturn {
  */
 export function useExecution(
   documentId: string,
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean; listenOnly?: boolean; userId?: string; username?: string }
 ): UseExecutionReturn {
   const enabled = options?.enabled !== false;
+  const listenOnly = options?.listenOnly === true;
+  const shouldConnect = enabled || listenOnly;
+  const userId = options?.userId ?? "";
+  const username = options?.username ?? "";
   const [isRunning, setIsRunning] = useState(false);
   const [output, setOutput] = useState("");
   const [stderrStr, setStderrStr] = useState("");
@@ -78,12 +82,13 @@ export function useExecution(
 
   // ── Persistent WebSocket lifecycle ─────────────────────────────────
   useEffect(() => {
+    if (!shouldConnect) return;
     intentionalCloseRef.current = false;
 
     let wsUrl: string;
     try {
       const baseUrl = getWsBaseUrl();
-      wsUrl = `${baseUrl}/ws/execute/${documentId}`;
+      wsUrl = `${baseUrl}/ws/execute/${documentId}?user_id=${encodeURIComponent(userId)}&username=${encodeURIComponent(username)}`;
     } catch {
       // Env var missing — nothing to connect to.
       setError("WebSocket URL is not configured. Set NEXT_PUBLIC_WS_URL.");
@@ -182,12 +187,12 @@ export function useExecution(
         wsRef.current = null;
       }
     };
-  }, [documentId, enabled]);
+  }, [documentId, shouldConnect, userId, username]);
 
   // ── execute(): send over the existing persistent socket ────────────
   const execute = useCallback(
     (language: string, code: string) => {
-      if (!enabled) return;
+      if (!enabled || listenOnly) return;
       // Reset output state
       setOutput("");
       setStderrStr("");
@@ -208,7 +213,7 @@ export function useExecution(
         setError("Connection unavailable. Reconnecting\u2026");
       }
     },
-    [enabled]
+    [enabled, listenOnly]
   );
 
   const clear = useCallback(() => {

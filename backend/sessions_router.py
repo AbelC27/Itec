@@ -47,7 +47,7 @@ async def list_active_sessions() -> list[dict]:
         doc_id = row["id"]
         seen.add(doc_id)
         live = doc_id in active_ids
-        members = len(manager.active_connections.get(doc_id, [])) if live else 0
+        members = manager.member_count(doc_id) if live else 0
         language = row.get("language") or "python"
         title = row.get("title") or f"Document {doc_id[:8]}"
         out.append(
@@ -59,7 +59,7 @@ async def list_active_sessions() -> list[dict]:
                 "status": "Live" if live else "Offline",
                 "membersActive": members,
                 "openFiles": 1,
-                "participants": [],
+                "participants": manager.get_participants(doc_id) if live else [],
             }
         )
 
@@ -81,7 +81,7 @@ async def list_active_sessions() -> list[dict]:
         except Exception:
             pass
 
-        members = len(manager.active_connections.get(doc_id, []))
+        members = manager.member_count(doc_id)
         title = row["title"] if row else f"Document {doc_id[:8]}"
         language = row["language"] if row else "python"
         out.append(
@@ -93,7 +93,7 @@ async def list_active_sessions() -> list[dict]:
                 "status": "Live",
                 "membersActive": members,
                 "openFiles": 1,
-                "participants": [],
+                "participants": manager.get_participants(doc_id),
             }
         )
 

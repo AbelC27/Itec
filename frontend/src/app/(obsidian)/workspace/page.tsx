@@ -1,7 +1,8 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
+import { useSearchParams, useRouter } from "next/navigation";
 import { getDocument, getActiveSessions, getExecutionTelemetryAlerts } from "@/lib/api";
 import type { Document } from "@/types/database";
 import type { ActiveSession, ExecutionTelemetryAlert } from "@/lib/api";
@@ -17,13 +18,30 @@ const CollaborativeEditor = dynamic(
 );
 
 function TeacherLiveTelemetryDashboard() {
+    const searchParams = useSearchParams();
+    const router = useRouter();
     const [sessions, setSessions] = useState<ActiveSession[]>([]);
     const [alerts, setAlerts] = useState<ExecutionTelemetryAlert[]>([]);
     const [sessionsError, setSessionsError] = useState<string | null>(null);
     const [loadingSessions, setLoadingSessions] = useState(true);
-    const [selectedTelemetryId, setSelectedTelemetryId] = useState<string | null>(null);
     const [obsDoc, setObsDoc] = useState<Document | null>(null);
     const [obsLoading, setObsLoading] = useState(false);
+
+    // Persist selected session in URL so it survives refresh / navigation
+    const selectedTelemetryId = searchParams.get("observe") ?? null;
+
+    const setSelectedTelemetryId = useCallback(
+        (id: string | null) => {
+            const params = new URLSearchParams(searchParams.toString());
+            if (id) {
+                params.set("observe", id);
+            } else {
+                params.delete("observe");
+            }
+            router.replace(`/workspace?${params.toString()}`);
+        },
+        [searchParams, router]
+    );
 
     useEffect(() => {
         let cancelled = false;
@@ -58,6 +76,7 @@ function TeacherLiveTelemetryDashboard() {
         };
     }, []);
 
+    // Fetch document and poll for updates while observing
     useEffect(() => {
         if (!selectedTelemetryId) {
             setObsDoc(null);
@@ -65,18 +84,28 @@ function TeacherLiveTelemetryDashboard() {
         }
         let cancelled = false;
         setObsLoading(true);
-        void getDocument(selectedTelemetryId)
-            .then((d) => {
+
+        async function fetchDoc() {
+            try {
+                const d = await getDocument(selectedTelemetryId!);
                 if (!cancelled) setObsDoc(d);
-            })
-            .catch(() => {
+            } catch {
                 if (!cancelled) setObsDoc(null);
-            })
-            .finally(() => {
+            } finally {
                 if (!cancelled) setObsLoading(false);
-            });
+            }
+        }
+
+        void fetchDoc();
+
+        // Poll every 5s so the teacher sees DB content even if Yjs isn't syncing
+        const pollId = window.setInterval(() => {
+            if (!cancelled) void fetchDoc();
+        }, 5000);
+
         return () => {
             cancelled = true;
+            window.clearInterval(pollId);
         };
     }, [selectedTelemetryId]);
 
@@ -105,15 +134,6 @@ function TeacherLiveTelemetryDashboard() {
                 </div>
             ) : null}
 
-            <div className="grid gap-6 lg:grid-cols-2">
-                <ActiveSessions
-                    sessions={sessions}
-                    isLoading={loadingSessions}
-                    error={sessionsError}
-                    onSelectSession={(s) => setSelectedTelemetryId(s.id)}
-                />
-            </div>
-
             {selectedTelemetryId ? (
                 <div className="rounded-2xl border border-border overflow-hidden bg-card">
                     <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-secondary/50 border-b border-border">
@@ -123,18 +143,18 @@ function TeacherLiveTelemetryDashboard() {
                         <button
                             type="button"
                             onClick={() => setSelectedTelemetryId(null)}
-                            className="text-[11px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
+                            className="text-[11px] uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
                         >
-                            Close
+                            ← Back to sessions
                         </button>
                     </div>
                     {obsLoading || !obsDoc ? (
                         <div className="p-6 space-y-4">
                             <Skeleton className="h-8 w-1/3" />
-                            <Skeleton className="h-[50vh] w-full" />
+                            <Skeleton className="h-[60vh] w-full" />
                         </div>
                     ) : (
-                        <div style={{ height: "calc(100vh - 14rem)", minHeight: "420px" }}>
+                        <div style={{ height: "calc(100vh - 12rem)", minHeight: "600px" }}>
                             <CollaborativeEditor
                                 documentId={selectedTelemetryId}
                                 language={obsDoc.language ?? "python"}
@@ -144,7 +164,16 @@ function TeacherLiveTelemetryDashboard() {
                         </div>
                     )}
                 </div>
-            ) : null}
+            ) : (
+                <div className="grid gap-6 lg:grid-cols-2">
+                    <ActiveSessions
+                        sessions={sessions}
+                        isLoading={loadingSessions}
+                        error={sessionsError}
+                        onSelectSession={(s) => setSelectedTelemetryId(s.id)}
+                    />
+                </div>
+            )}
         </div>
     );
 }
@@ -258,12 +287,12 @@ export default function ObsidianWorkspacePage() {
                 title={document.title}
                 content={document.content ?? ""}
             />
-            <div className="flex-1 flex items-center justify-center rounded-2xl border border-dashed border-border bg-secondary/20 px-6 py-12">
-                <p className="text-center text-sm text-muted-foreground max-w-lg leading-relaxed">
-                    Editing happens in VS Code with the iTECify extension. Use{" "}
-                    <span className="font-mono text-foreground">Connect VS Code</span> above to link
-                    this document, then push and pull from the extension when you are ready.
-                </p>
+            <div className="flex-1 min-h-0">
+                <CollaborativeEditor
+                    documentId={activeDocumentId}
+                    language={document.language ?? "python"}
+                    initialContent={document.content ?? ""}
+                />
             </div>
         </div>
     );

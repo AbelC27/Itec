@@ -298,19 +298,22 @@ export type AiChatMessageRecord = {
 
 export async function getChatSessions(
     documentId: string,
+    userId?: string,
     init?: RequestInit
 ): Promise<AiChatSession[]> {
-    return fetchJson<AiChatSession[]>(`/api/chats/${documentId}/sessions`, init);
+    const params = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+    return fetchJson<AiChatSession[]>(`/api/chats/${documentId}/sessions${params}`, init);
 }
 
 export async function createChatSession(
     documentId: string,
     title = "New Chat",
+    userId?: string,
     init?: RequestInit
 ): Promise<AiChatSession> {
     return fetchJson<AiChatSession>(`/api/chats/${documentId}/sessions`, {
         method: "POST",
-        body: JSON.stringify({ document_id: documentId, title }),
+        body: JSON.stringify({ document_id: documentId, title, user_id: userId ?? "" }),
         ...init,
     });
 }
