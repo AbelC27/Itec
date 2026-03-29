@@ -353,3 +353,17 @@ export async function saveChatMessage(
         }
     );
 }
+
+// ── Telemetry: Stuck Sessions ────────────────────────────────────────
+
+export type StuckSession = {
+    session_id: string;
+    failure_streak: number;
+    message: string;
+};
+
+export async function getStuckSessions(
+    init?: RequestInit
+): Promise<StuckSession[]> {
+    return fetchJson<StuckSession[]>("/api/telemetry/stuck-sessions", init);
+}

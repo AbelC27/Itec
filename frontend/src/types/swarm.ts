@@ -22,3 +22,11 @@ export interface SwarmMessage {
 }
 
 export type SwarmStatus = "idle" | "generating" | "reviewing" | "testing" | "complete" | "error";
+
+export interface TutorIntervention {
+  session_id: string;
+  question: string;
+  root_cause_summary: string;
+  language: string;
+  created_at: string;
+}

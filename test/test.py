@@ -1,6 +1,1 @@
-print("Hello, World!")
-print("Buna seara")
-print("Buna ziua")print("Hello, World!")
-print("Buna seara")
-print("Buna ziua")print("Hello, World!")
-print("Buna seara")
+print(undefined_var)

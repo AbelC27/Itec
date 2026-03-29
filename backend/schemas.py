@@ -108,6 +108,25 @@ class BranchCreateRequest(BaseModel):
 # --- Autonomous Agent Swarm (LangGraph) ---
 
 
+class TutorTriggerState(TypedDict):
+    """Input state for the sentinel_tutor_node LangGraph node."""
+
+    session_id: str
+    code_snapshot: str
+    stderr: str
+    language: str
+
+
+class TutorIntervention(BaseModel):
+    """Payload produced by the Sentinel Tutor Agent and broadcast to the student."""
+
+    session_id: str
+    question: str
+    root_cause_summary: str
+    language: str
+    created_at: datetime
+
+
 class Swarm_State(TypedDict):
     """Shared state passed between all LangGraph nodes in the autonomous agent swarm.
     

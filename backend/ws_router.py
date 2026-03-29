@@ -8,6 +8,8 @@ from db import get_supabase_client
 from docker_manager import DockerIsolationManager
 from schemas import Swarm_State
 from swarm.graph import create_swarm_graph
+from swarm.nodes import sentinel_tutor_node
+from telemetry import check_and_trigger
 
 logger = logging.getLogger(__name__)
 
@@ -168,20 +170,65 @@ async def execute_code_ws(websocket: WebSocket, document_id: str) -> None:
 
             estimate = await docker_mgr.execute_streaming(language, code, accumulating_send)
 
-            # Fire-and-forget DB insert
+            # Fire-and-forget DB insert + telemetry check
             if document_id and estimate and "execution_time" in execution_metadata:
                 exit_code = int(execution_metadata.get("exit_code", -1))
-                _task = asyncio.create_task(save_execution(
-                    document_id=document_id,
-                    language=language,
-                    code=code,
-                    mem_limit=estimate.mem_limit,
-                    nano_cpus=estimate.nano_cpus,
-                    stdout="".join(stdout_buf),
-                    stderr="".join(stderr_buf),
-                    execution_time=execution_metadata["execution_time"],
-                    exit_code=exit_code,
-                    session_id=document_id,
+                # Snapshot mutable buffers NOW to avoid closure issues
+                _stdout_snap = "".join(stdout_buf)
+                _stderr_snap = "".join(stderr_buf)
+                _code_snap = code
+                _lang_snap = language
+                _doc_id = document_id
+                _exec_time = execution_metadata["execution_time"]
+
+                async def _save_and_check_tutor(
+                    doc_id: str,
+                    lang: str,
+                    code_s: str,
+                    mem_limit: str,
+                    nano_cpus: int,
+                    stdout_s: str,
+                    stderr_s: str,
+                    exec_time: float,
+                    ex_code: int,
+                ) -> None:
+                    """Save execution, then check streak and maybe trigger tutor."""
+                    # 1. Save to DB first (await so it commits before streak check)
+                    await save_execution(
+                        document_id=doc_id,
+                        language=lang,
+                        code=code_s,
+                        mem_limit=mem_limit,
+                        nano_cpus=nano_cpus,
+                        stdout=stdout_s,
+                        stderr=stderr_s,
+                        execution_time=exec_time,
+                        exit_code=ex_code,
+                        session_id=doc_id,
+                    )
+                    # 2. Now check failure streak (DB row is committed)
+                    try:
+                        trigger = check_and_trigger(
+                            session_id=doc_id,
+                            code_snapshot=code_s,
+                            stderr=stderr_s,
+                            language=lang,
+                        )
+                        if trigger is not None:
+                            logger.info("Tutor trigger fired for session %s", doc_id)
+                            intervention = await sentinel_tutor_node(trigger)
+                            await manager.broadcast(
+                                {"type": "tutor_intervention", "data": intervention},
+                                doc_id,
+                            )
+                            logger.info("Tutor intervention broadcast for session %s", doc_id)
+                    except Exception as exc:
+                        logger.error("Tutor trigger failed for %s: %s", doc_id, exc)
+
+                asyncio.create_task(_save_and_check_tutor(
+                    _doc_id, _lang_snap, _code_snap,
+                    estimate.mem_limit, estimate.nano_cpus,
+                    _stdout_snap, _stderr_snap, _exec_time, exit_code,
                 ))
 
     except WebSocketDisconnect:

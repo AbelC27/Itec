@@ -8,7 +8,9 @@ import type { Document } from "@/types/database";
 import type { ActiveSession, ExecutionTelemetryAlert } from "@/lib/api";
 import { useActiveDocument } from "@/components/providers/active-document-provider";
 import { useProfile } from "@/hooks/useProfile";
+import { useTutorIntervention } from "@/hooks/useTutorIntervention";
 import VsCodeLinkBanner from "@/components/workspace/vscode-link-banner";
+import TutorInterventionBlock from "@/components/workspace/TutorInterventionBlock";
 import ActiveSessions from "@/components/dashboard/ActiveSessions";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -185,6 +187,11 @@ export default function ObsidianWorkspacePage() {
     const [error, setError] = useState<string | null>(null);
     const [isDocLoading, setIsDocLoading] = useState(false);
 
+    const { intervention, dismiss } = useTutorIntervention({
+        documentId: activeDocumentId ?? "",
+        enabled: !!activeDocumentId,
+    });
+
     useEffect(() => {
         if (!activeDocumentId) {
             startTransition(() => {
@@ -287,6 +294,12 @@ export default function ObsidianWorkspacePage() {
                 title={document.title}
                 content={document.content ?? ""}
             />
+            {intervention && (
+                <TutorInterventionBlock
+                    intervention={intervention}
+                    onDismiss={dismiss}
+                />
+            )}
             <div className="flex-1 min-h-0">
                 <CollaborativeEditor
                     documentId={activeDocumentId}

@@ -4,7 +4,7 @@ import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 
-import type { ActiveSession } from "../../lib/api";
+import type { ActiveSession, StuckSession } from "../../lib/api";
 
 type ActiveSessionsProps = {
     sessions: ActiveSession[];
@@ -12,6 +12,8 @@ type ActiveSessionsProps = {
     error?: string | null;
     /** Open a session in the Live Telemetry / observation view (e.g. document id). */
     onSelectSession?: (session: ActiveSession) => void;
+    /** Sessions currently stuck on repeated failures. */
+    stuckSessions?: StuckSession[];
 };
 
 export default function ActiveSessions({
@@ -19,8 +21,14 @@ export default function ActiveSessions({
     isLoading = false,
     error = null,
     onSelectSession,
+    stuckSessions = [],
 }: ActiveSessionsProps) {
     const hasSessions = sessions.length > 0;
+
+    // Build a lookup for quick stuck-session detection
+    const stuckMap = new Map(
+        stuckSessions.map((s) => [s.session_id, s])
+    );
 
     return (
         <Card className="border-white/10 bg-background">
@@ -63,6 +71,7 @@ export default function ActiveSessions({
                             const visiblePeers = session.participants.slice(0, 4);
                             const extraPeers = session.participants.length - visiblePeers.length;
                             const isLive = session.status.toLowerCase().includes("live");
+                            const stuck = stuckMap.get(session.id);
 
                             return (
                                 <div
@@ -77,12 +86,22 @@ export default function ActiveSessions({
                                             onSelectSession(session);
                                         }
                                     }}
-                                    className={`rounded-xl border border-white/10 bg-secondary/50 p-4 transition-all duration-200 ${
+                                    className={`rounded-xl border p-4 transition-all duration-200 ${
+                                        stuck
+                                            ? "border-rose-500/40 bg-rose-500/5"
+                                            : "border-white/10 bg-secondary/50"
+                                    } ${
                                         onSelectSession
                                             ? "cursor-pointer hover:bg-accent focus-visible:outline focus-visible:ring-2 focus-visible:ring-ring"
                                             : "hover:bg-accent"
                                     }`}
                                 >
+                                    {stuck && (
+                                        <div className="mb-3 flex items-center gap-2 rounded-lg bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-400">
+                                            <span className="h-2 w-2 rounded-full bg-rose-400 animate-pulse" />
+                                            Stuck: {stuck.failure_streak}+ consecutive failures
+                                        </div>
+                                    )}
                                     <div className="flex items-start justify-between gap-4">
                                         <div className="flex items-start gap-4">
                                             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-background text-muted-foreground">

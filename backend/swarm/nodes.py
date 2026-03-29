@@ -10,12 +10,18 @@ All nodes use async def with direct await (no asyncio.run) for
 non-blocking execution in FastAPI's event loop.
 """
 
+import json as _json
 import os
+import logging
+from datetime import datetime, timezone
+
 from openai import AsyncOpenAI
 
 from ai_analyzer import analyze
 from docker_manager import DockerIsolationManager
-from schemas import Swarm_State
+from schemas import Swarm_State, TutorTriggerState, TutorIntervention
+
+_logger = logging.getLogger(__name__)
 
 
 async def python_developer_node(state: Swarm_State) -> dict:
@@ -182,3 +188,96 @@ async def sandbox_tester_node(state: Swarm_State) -> dict:
             "error_message": str(e),
             "retry_count": state["retry_count"] + 1
         }
+
+
+# ---------------------------------------------------------------------------
+# Sentinel Tutor Agent — Socratic guidance generation (Requirement 3 & 6)
+# ---------------------------------------------------------------------------
+
+_SOCRATIC_SYSTEM_PROMPT = (
+    "You are a Socratic tutor for programming students. "
+    "You MUST NOT provide direct answers, code fixes, or solutions.\n\n"
+    "Given a student's failing code and the error output, you must:\n"
+    "1. Identify the likely root cause of the failure.\n"
+    "2. Formulate ONE guiding question that leads the student toward "
+    "discovering the issue themselves.\n\n"
+    "Your question should hint at the area of the problem without revealing the fix.\n"
+    'Respond in JSON: {"question": "...", "root_cause_summary": "..."}'
+)
+
+_FALLBACK_QUESTION = "Keep going! Try re-reading the error message carefully."
+_FALLBACK_SUMMARY = "Review the error output for clues."
+
+
+async def sentinel_tutor_node(state: TutorTriggerState) -> dict:
+    """Analyse failing student code and produce a Socratic guiding question.
+
+    Returns a dict suitable for constructing a TutorIntervention.
+    """
+    session_id = state["session_id"]
+    code_snapshot = state.get("code_snapshot", "")
+    stderr = state.get("stderr", "")
+    language = state.get("language", "unknown")
+
+    # Empty code or stderr → generic encouragement (Req 3.5)
+    if not code_snapshot.strip() or not stderr.strip():
+        return TutorIntervention(
+            session_id=session_id,
+            question=_FALLBACK_QUESTION,
+            root_cause_summary=_FALLBACK_SUMMARY,
+            language=language,
+            created_at=datetime.now(timezone.utc),
+        ).model_dump(mode="json")
+
+    client = AsyncOpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+    )
+
+    try:
+        response = await client.chat.completions.create(
+            model="openai/gpt-4o",
+            temperature=0.4,
+            timeout=10,
+            messages=[
+                {"role": "system", "content": _SOCRATIC_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Language: {language}\n\n"
+                        f"Code:\n```\n{code_snapshot}\n```\n\n"
+                        f"Error output:\n```\n{stderr}\n```"
+                    ),
+                },
+            ],
+        )
+
+        raw = response.choices[0].message.content.strip()
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1]
+        if raw.endswith("```"):
+            raw = raw[: raw.rfind("```")]
+        raw = raw.strip()
+
+        parsed = _json.loads(raw)
+        question = parsed.get("question", _FALLBACK_QUESTION)
+        root_cause = parsed.get("root_cause_summary", _FALLBACK_SUMMARY)
+
+        return TutorIntervention(
+            session_id=session_id,
+            question=question,
+            root_cause_summary=root_cause,
+            language=language,
+            created_at=datetime.now(timezone.utc),
+        ).model_dump(mode="json")
+
+    except Exception as exc:
+        _logger.error("sentinel_tutor_node failed for session %s: %s", session_id, exc)
+        return TutorIntervention(
+            session_id=session_id,
+            question=_FALLBACK_QUESTION,
+            root_cause_summary=_FALLBACK_SUMMARY,
+            language=language,
+            created_at=datetime.now(timezone.utc),
+        ).model_dump(mode="json")
