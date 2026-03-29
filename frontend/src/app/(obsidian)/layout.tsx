@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
 import type { LucideIcon } from "lucide-react";
 import {
     Bug,
@@ -15,7 +14,6 @@ import {
     LifeBuoy,
     LogOut,
     Menu,
-    Plus,
     Settings,
     User,
     X,
@@ -157,24 +155,6 @@ function SidebarContent({
             </nav>
 
             <div className="mt-auto space-y-4">
-                <Button
-                    variant="outline"
-                    className={`w-full transition-colors duration-[250ms] ${
-                        collapsed ? "px-0" : "justify-start"
-                    }`}
-                    aria-label="Create new branch"
-                    onClick={onClose}
-                >
-                    <Plus className="h-4 w-4 shrink-0" />
-                    {collapsed ? (
-                        <span className="sr-only">New Branch</span>
-                    ) : (
-                        <span className="text-xs font-semibold uppercase tracking-[0.3em]">
-                            New Branch
-                        </span>
-                    )}
-                </Button>
-
                 <nav
                     aria-label="Secondary navigation"
                     className="space-y-1"
