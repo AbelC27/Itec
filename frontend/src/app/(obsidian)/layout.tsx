@@ -75,7 +75,7 @@ function SidebarContent({
                                 Navigation
                             </p>
                             <p className="mt-1 text-sm font-semibold text-foreground">
-                                iTECity Workspace
+                                iTECify Workspace
                             </p>
                         </div>
                         <button

@@ -60,7 +60,7 @@ export default function SignupPage() {
       <section className="animate-in fade-in-0 slide-in-from-bottom-4 relative w-full max-w-md rounded-2xl border border-border bg-card p-8 duration-500">
         <header className="text-center mb-6">
           <h1 className="text-2xl font-bold text-foreground">Create account</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Start building with iTECity.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Start building with iTECify.</p>
         </header>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">

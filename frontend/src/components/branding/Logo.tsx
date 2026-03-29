@@ -59,7 +59,7 @@ export function Logo({ size = "medium", className = "", priority = false }: Logo
               : "text-2xl"
           }`}
         >
-          iTECity
+          iTECify
         </span>
       </div>
     );

@@ -1416,7 +1416,7 @@ function EditorWithYjs({
               <div className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-background" />
             </div>
             <div className="min-w-0">
-              <div className="text-[11px] font-extrabold tracking-[0.2em] uppercase">iTECity AI</div>
+              <div className="text-[11px] font-extrabold tracking-[0.2em] uppercase">iTECify AI</div>
               <div className="text-[10px] font-mono text-emerald-400 tracking-widest">Status: Ready</div>
             </div>
           </div>
