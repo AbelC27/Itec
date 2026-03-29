@@ -8,6 +8,9 @@ import { useProfile } from "@/hooks/useProfile";
 import { useYjsSupabase } from "@/hooks/useYjsSupabase";
 import { useExecution } from "@/hooks/useExecution";
 import { useHistory } from "@/hooks/useHistory";
+import { useRageQuitDetector } from "@/hooks/useRageQuitDetector";
+import { useGhostCollab } from "@/hooks/useGhostCollab";
+import GhostCursor from "@/components/GhostCursor";
 import {
   sendAiChat,
   ApiError,
@@ -667,6 +670,10 @@ function EditorWithYjs({
     [handleSendChat]
   );
 
+  // ── Easter Egg hooks ──────────────────────────────────────────────
+  const { isRaging } = useRageQuitDetector(editor);
+  const ghostState = useGhostCollab(editor);
+
   // Determine terminal content: execution output takes priority when running/has output
   const hasExecutionOutput = execution.output || execution.error;
   const showExecutionOutput = execution.isRunning || hasExecutionOutput;
@@ -705,7 +712,7 @@ function EditorWithYjs({
         <Panel defaultSize={72} minSize={45} className="min-w-0">
           <section className="flex h-full min-w-0 flex-col bg-background">
           {/* ── Status Bar ─────────────────────────────────── */}
-          <div className="flex items-center justify-between gap-4 px-6 py-2.5 bg-secondary/60 border-b border-border">
+          <div data-ragequit="status-bar" className="flex items-center justify-between gap-4 px-6 py-2.5 bg-secondary/60 border-b border-border">
             <div className="flex items-center gap-3 flex-wrap">
               {readOnly ? (
                 <div className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-amber-300 border border-amber-500/40 bg-amber-500/10 px-2 py-1 rounded-lg">
@@ -825,7 +832,7 @@ function EditorWithYjs({
           </div>
 
           {/* ── Tab Bar ───────────────────────────────────── */}
-          <div className="flex border-b border-border bg-secondary/40 overflow-x-auto">
+          <div data-ragequit="tab-bar" className="flex border-b border-border bg-secondary/40 overflow-x-auto">
             <span className="flex items-center gap-2 px-4 py-3 text-[11px] font-mono text-muted-foreground border-r border-border">
               {language.charAt(0).toUpperCase() + language.slice(1)} — {documentId.slice(0, 8)}
             </span>
@@ -876,7 +883,7 @@ function EditorWithYjs({
           {/* ── Security Alert ────────────────────────────── */}
           {/* ── Terminal / History Panel ──────────────────── */}
             <Panel defaultSize={32} minSize={18} className="min-h-0">
-              <div className="flex h-full flex-col border-t border-border bg-background/70 backdrop-blur-xl">
+              <div data-ragequit="terminal-panel" className="flex h-full flex-col border-t border-border bg-background/70 backdrop-blur-xl">
             <div className="flex items-center gap-4 px-4 py-2 text-[10px] font-extrabold tracking-widest uppercase bg-secondary/60">
               <span
                 className={`cursor-pointer pb-0.5 ${activeTab === "Terminal" ? "text-blue-400 border-b-2 border-blue-400" : "text-muted-foreground"}`}
@@ -1255,6 +1262,9 @@ function EditorWithYjs({
           </aside>
         </Panel>
       </Group>
+
+      {/* ── Easter Egg: Ghost AI Cursor ──────────────────── */}
+      <GhostCursor ghostState={ghostState} />
     </div>
   );
 }

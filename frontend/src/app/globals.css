@@ -84,3 +84,160 @@ body {
 code, pre, kbd, samp {
   font-family: var(--font-mono), ui-monospace, monospace;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   EASTER EGG 1 — Rage Quit Physics (Gravity Mode)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Elements pulled out of flow during the physics sim */
+.rage-quit-element {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  backface-visibility: hidden;
+}
+
+/* Full-screen overlay for the calming message */
+.rage-quit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0);
+  backdrop-filter: blur(0px);
+  opacity: 0;
+  transition: all 600ms cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+.rage-quit-overlay--visible {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
+  pointer-events: auto;
+}
+.rage-quit-overlay--exit {
+  opacity: 0;
+  background: rgba(0, 0, 0, 0);
+  backdrop-filter: blur(0px);
+  transition: all 500ms ease-out;
+}
+
+/* The calming message card */
+.rage-quit-message {
+  text-align: center;
+  color: #fafafa;
+  animation: rageMessageAppear 800ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.rage-quit-emoji {
+  display: block;
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  animation: rageEmojiFloat 3s ease-in-out infinite;
+}
+.rage-quit-message p {
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.7;
+  letter-spacing: 0.02em;
+  opacity: 0.9;
+  margin: 0;
+  max-width: 420px;
+}
+
+@keyframes rageMessageAppear {
+  0% {
+    opacity: 0;
+    transform: scale(0.7) translateY(30px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes rageEmojiFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   EASTER EGG 2 — Ghost in the Machine (Sentient AI Cursor)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Cursor container */
+.ghost-cursor {
+  filter: drop-shadow(0 0 12px rgba(57, 255, 20, 0.5));
+  transition: filter 300ms ease;
+}
+
+/* The SVG arrow */
+.ghost-cursor-svg {
+  filter: drop-shadow(0 0 6px rgba(57, 255, 20, 0.7));
+  animation: ghostPulse 2s ease-in-out infinite;
+}
+
+/* Label badge */
+.ghost-cursor-label {
+  position: absolute;
+  top: 22px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: #39FF14;
+  color: #0a0a0a;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 8px 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 0 16px rgba(57, 255, 20, 0.45), 0 2px 8px rgba(0, 0, 0, 0.5);
+  animation: ghostLabelGlow 2s ease-in-out infinite;
+}
+
+.ghost-cursor-label-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #0a0a0a;
+  animation: ghostDotPulse 1.5s ease-in-out infinite;
+}
+
+/* Typing indicator dots */
+.ghost-typing-indicator {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+.ghost-typing-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #0a0a0a;
+  animation: ghostTypingBounce 1.2s ease-in-out infinite;
+}
+.ghost-typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.ghost-typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes ghostPulse {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(57, 255, 20, 0.7)); }
+  50% { filter: drop-shadow(0 0 18px rgba(57, 255, 20, 0.95)); }
+}
+
+@keyframes ghostLabelGlow {
+  0%, 100% { box-shadow: 0 0 16px rgba(57, 255, 20, 0.45), 0 2px 8px rgba(0, 0, 0, 0.5); }
+  50% { box-shadow: 0 0 28px rgba(57, 255, 20, 0.7), 0 2px 12px rgba(0, 0, 0, 0.5); }
+}
+
+@keyframes ghostDotPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes ghostTypingBounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-3px); }
+}
