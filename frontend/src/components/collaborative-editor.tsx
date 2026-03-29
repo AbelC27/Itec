@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useCallback, useState, type KeyboardEvent } from "react";
+import { useRef, useEffect, useCallback, useState, useMemo, type KeyboardEvent } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { MonacoBinding } from "y-monaco";
 import { Group, Panel, Separator } from "react-resizable-panels";
@@ -11,6 +11,7 @@ import { useHistory } from "@/hooks/useHistory";
 import { useRageQuitDetector } from "@/hooks/useRageQuitDetector";
 import { useGhostCollab } from "@/hooks/useGhostCollab";
 import GhostCursor from "@/components/GhostCursor";
+import WalkingBug from "@/components/workspace/WalkingBug";
 import {
   sendAiChat,
   ApiError,
@@ -674,6 +675,50 @@ function EditorWithYjs({
   const { isRaging } = useRageQuitDetector(editor);
   const ghostState = useGhostCollab(editor);
 
+  // ── Walking Bug Easter egg — parse error line numbers ─────────────
+  const errorBugs = useMemo(() => {
+    // Only show bugs when execution finished with errors
+    if (execution.isRunning || !execution.stderr) return [];
+
+    const bugs: { lineNumber: number; errorMessage: string }[] = [];
+    const seen = new Set<number>();
+
+    // Python tracebacks: `File "<string>", line 5`
+    const pyRegex = /(?:File\s+"[^"]*",\s+line\s+(\d+))/gi;
+    // JavaScript/Node: `  at ... (<anonymous>:3:1)` or `line 7`
+    const jsRegex = /(?::\s*(\d+):\d+|line\s+(\d+))/gi;
+    // Generic: `line <N>` or `Line <N>`
+    const genericRegex = /\bline\s+(\d+)/gi;
+
+    const stderr = execution.stderr;
+    for (const rx of [pyRegex, jsRegex, genericRegex]) {
+      let m: RegExpExecArray | null;
+      while ((m = rx.exec(stderr)) !== null) {
+        const lineNo = parseInt(m[1] || m[2], 10);
+        if (!isNaN(lineNo) && lineNo > 0 && !seen.has(lineNo)) {
+          seen.add(lineNo);
+          // Extract a contextual message: grab from the regex match to end-of-line
+          const idx = m.index;
+          const restOfLine = stderr.slice(idx, stderr.indexOf("\n", idx + 1));
+          bugs.push({
+            lineNumber: lineNo,
+            errorMessage: restOfLine || stderr.slice(0, 200),
+          });
+        }
+      }
+    }
+
+    // Fallback: if no line number found, put the bug on line 1
+    if (bugs.length === 0 && stderr.trim().length > 0) {
+      bugs.push({
+        lineNumber: 1,
+        errorMessage: stderr.slice(0, 200),
+      });
+    }
+
+    return bugs.slice(0, 5); // cap at 5 bugs
+  }, [execution.isRunning, execution.stderr]);
+
   // Determine terminal content: execution output takes priority when running/has output
   const hasExecutionOutput = execution.output || execution.error;
   const showExecutionOutput = execution.isRunning || hasExecutionOutput;
@@ -875,6 +920,20 @@ function EditorWithYjs({
                     }}
                   />
                 </div>
+                {/* Walking Bug Easter egg overlay */}
+                {errorBugs.length > 0 && (
+                  <div className="absolute inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 10 }}>
+                    {errorBugs.map((bug) => (
+                      <WalkingBug
+                        key={`bug-${bug.lineNumber}`}
+                        lineNumber={bug.lineNumber}
+                        errorMessage={bug.errorMessage}
+                        codeSnippet={code}
+                        topOffset={(bug.lineNumber - 1) * 19 + 4}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             </Panel>
 
