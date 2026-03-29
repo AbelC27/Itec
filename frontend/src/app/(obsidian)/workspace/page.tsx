@@ -108,8 +108,11 @@ function TeacherLiveTelemetryDashboard() {
                     intervalId = null;
                 }
             } else {
-                void tick();
-                startPolling();
+                // Resume background polling without forcing an immediate refetch
+                // when focus returns; this avoids visible UI "refresh" on alt-tab.
+                if (!intervalId) {
+                    startPolling();
+                }
             }
         }
 

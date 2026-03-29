@@ -23,12 +23,14 @@ interface UseProfileReturn {
 
 export function useProfile(): UseProfileReturn {
   const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const userEmail = user?.email ?? null;
   const [profile, setProfile] = useState<ProfileIdentity | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
-    if (!user) {
+    if (!userId) {
       setProfile(null);
       setIsLoading(false);
       return;
@@ -52,8 +54,8 @@ export function useProfile(): UseProfileReturn {
         if (error || !data) {
           // Fallback identity on network error or missing row
           setProfile({
-            id: user!.id,
-            username: user!.email ?? user!.id,
+            id: userId,
+            username: userEmail ?? userId,
             avatar_color_hex: "#6B7280",
             role: fallbackRole,
             status: "online",
@@ -83,8 +85,8 @@ export function useProfile(): UseProfileReturn {
         if (cancelled) return;
         // Fallback identity on unexpected errors
         setProfile({
-          id: user!.id,
-          username: user!.email ?? user!.id,
+          id: userId,
+          username: userEmail ?? userId,
           avatar_color_hex: "#6B7280",
           role: "student",
           status: "online",
@@ -104,7 +106,7 @@ export function useProfile(): UseProfileReturn {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [userEmail, userId]);
 
   async function updateProfile(updates: ProfileUpdatePayload): Promise<{ error: string | null }> {
     if (!user) {
