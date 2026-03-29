@@ -442,6 +442,39 @@ function EditorWithYjs({
     editor.updateOptions({ readOnly: false, domReadOnly: readOnly });
   }, [editor, readOnly]);
 
+  // ── Auto-apply Bug Squash fix ─────────────────────────────────────────────
+  useEffect(() => {
+    if (readOnly || !documentId || !yDocInstance || !providerInstance) return;
+
+    const checkAndApplyFix = () => {
+      const fixKey = `pending_fix_${documentId}`;
+      const pendingFix = localStorage.getItem(fixKey);
+      if (pendingFix) {
+        localStorage.removeItem(fixKey);
+        applyCloudContentRef.current(pendingFix);
+      }
+    };
+    
+    // Check initially, and also whenever sync finishes
+    if (providerInstance.synced) {
+      setTimeout(checkAndApplyFix, 100);
+    } else {
+      providerInstance.once("sync", () => {
+        setTimeout(checkAndApplyFix, 100);
+      });
+    }
+
+    // Also listen to storage events across tabs
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === `pending_fix_${documentId}` && e.newValue) {
+        localStorage.removeItem(`pending_fix_${documentId}`);
+        applyCloudContentRef.current(e.newValue);
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [documentId, readOnly, yDocInstance, providerInstance]);
+
   const handleCodeChange = useCallback(
     (newCode: string) => {
       if (newCode === code) {

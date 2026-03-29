@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useActiveDocument } from "@/components/providers/active-document-provider";
 import { useHistory } from "@/hooks/useHistory";
+import { sendAiChat } from "@/lib/api";
 import type { ExecutionHistoryEntry } from "@/types/execution-history";
 import { Loader2, Copy, Check, AlertCircle, Clock, History, Bug, Sparkles } from "lucide-react";
 
@@ -123,15 +124,21 @@ function MenacingBug({ isSquashed }: { isSquashed: boolean }) {
 function BugSquashPanel({
   line,
   codeSnippet,
+  documentId,
 }: {
   line: number;
   codeSnippet: string;
+  documentId: string;
 }) {
+  const router = useRouter();
   const [isSquashed, setIsSquashed] = useState(false);
   const [showFixedCode, setShowFixedCode] = useState(false);
+  const [fixedCode, setFixedCode] = useState<string | null>(null);
+  const [isFixing, setIsFixing] = useState(false);
 
   const handleSquash = useCallback(async () => {
     setIsSquashed(true);
+    setIsFixing(true);
 
     // Fire confetti!
     try {
@@ -156,11 +163,46 @@ function BugSquashPanel({
       // Non-critical
     }
 
-    // Show the "fixed" code after a beat
-    setTimeout(() => {
+    try {
+      const promptTitle = `Fix the bug around line ${line} in the provided code.
+Your ONLY output must be the FULL, corrected code. You must return the entire code snippet from start to finish with the bug fixed.
+CRITICAL INSTRUCTIONS:
+- DO NOT use placeholders, abbreviations, or comments like "// ...rest of the code". You must output every line.
+- DO NOT include explanations, greetings, or conversational text anywhere.
+- Output ONLY the raw code text so it can be directly compiled.`;
+      
+      const aiResponse = await sendAiChat({
+        message: promptTitle,
+        code: codeSnippet,
+        user_role: "teacher",
+      });
+      
+      let extractedCode = (aiResponse.reply || "").trim();
+      
+      // If the AI still wrapped the response in a markdown code block, strip it out safely
+      if (extractedCode.startsWith("\`\`\`")) {
+        const firstNewline = extractedCode.indexOf("\n");
+        const lastBackticks = extractedCode.lastIndexOf("\`\`\`");
+        if (firstNewline !== -1 && lastBackticks > firstNewline) {
+          extractedCode = extractedCode.substring(firstNewline + 1, lastBackticks).trim();
+        }
+      }
+
+      setFixedCode(extractedCode);
+    } catch (e) {
+      setFixedCode(codeSnippet + "\n// AI Fix failed to load. Please try again or use the Editor Chat.");
+    } finally {
+      setIsFixing(false);
       setShowFixedCode(true);
-    }, 1200);
-  }, []);
+    }
+  }, [line, codeSnippet]);
+
+  const handleApplyFix = () => {
+    if (fixedCode) {
+      localStorage.setItem(`pending_fix_${documentId}`, fixedCode);
+      router.push("/workspace");
+    }
+  };
 
   return (
     <div className="flex flex-col items-center gap-6 p-8">
@@ -203,26 +245,34 @@ function BugSquashPanel({
       )}
 
       {/* Squashed message */}
-      {isSquashed && !showFixedCode && (
+      {(isSquashed && isFixing) && (
         <div className="flex items-center gap-2 text-emerald-400 text-sm font-mono animate-pulse">
           <Loader2 className="h-4 w-4 animate-spin" />
-          AI Swarm is fixing your code…
+          AI Swarm is analyzing and fixing your code…
         </div>
       )}
 
       {/* Fixed code display */}
-      {showFixedCode && (
-        <div className="w-full max-w-2xl space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {(showFixedCode && fixedCode) && (
+        <div className="w-full max-w-2xl space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-widest">
             <Check className="h-4 w-4" />
             Bug Squashed! Here&apos;s your fixed code:
           </div>
-          <pre className="font-mono text-[13px] text-foreground whitespace-pre-wrap bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-5 leading-relaxed">
-            {codeSnippet}
+          <pre className="font-mono text-[13px] text-foreground whitespace-pre-wrap bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-5 leading-relaxed max-h-[400px] overflow-y-auto">
+            {fixedCode}
           </pre>
-          <p className="text-muted-foreground text-xs text-center">
-            Use the AI Swarm chat in the editor to iterate on this fix further.
-          </p>
+          <div className="flex flex-col items-center gap-3 pt-2">
+            <button
+              onClick={handleApplyFix}
+              className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs uppercase tracking-widest transition-colors cursor-pointer"
+            >
+              Apply Fix & Return to Editor
+            </button>
+            <p className="text-muted-foreground text-[11px] text-center">
+              The Swarm will auto-apply this patch to your workspace.
+            </p>
+          </div>
         </div>
       )}
     </div>
@@ -279,6 +329,7 @@ function DebuggingPageInner() {
           <BugSquashPanel
             line={parseInt(bugLine, 10) || 1}
             codeSnippet={decodeURIComponent(bugCode)}
+            documentId={activeDocumentId}
           />
         </div>
       )}
