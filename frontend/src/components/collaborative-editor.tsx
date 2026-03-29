@@ -27,6 +27,53 @@ import {
   Mic, Send, Wand2, RotateCcw, Bot, Download, Upload,
 } from "lucide-react";
 
+function escapeCssContent(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const normalized = hex.trim().replace("#", "");
+  const valid = /^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(normalized);
+  if (!valid) {
+    return `rgba(125, 211, 252, ${alpha})`;
+  }
+
+  const full =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((c) => `${c}${c}`)
+          .join("")
+      : normalized;
+
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function readableTextColor(hex: string): string {
+  const normalized = hex.trim().replace("#", "");
+  const valid = /^([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(normalized);
+  if (!valid) {
+    return "#0b1220";
+  }
+
+  const full =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((c) => `${c}${c}`)
+          .join("")
+      : normalized;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+
+  const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luma > 0.65 ? "#0b1220" : "#ffffff";
+}
+
 /** Extract code blocks from markdown-formatted AI replies. */
 function parseMessageParts(content: string): { type: "text" | "code"; value: string }[] {
   const parts: { type: "text" | "code"; value: string }[] = [];
@@ -150,6 +197,7 @@ function EditorWithYjs({
 }) {
   const yjsState = useYjsSupabase(documentId, profile);
   const bindingRef = useRef<MonacoBinding | null>(null);
+  const presenceStyleRef = useRef<HTMLStyleElement | null>(null);
   const applyCloudContentRef = useRef<(nextContent: string) => void>(() => {});
   const hasSeededInitialContentRef = useRef(false);
   const lastCloudContentRef = useRef(initialContent);
@@ -387,6 +435,48 @@ function EditorWithYjs({
   const yDocInstance = yjsState?.yDoc ?? null;
   const providerInstance = yjsState?.provider ?? null;
   const awarenessInstance = yjsState?.awareness ?? null;
+
+  // Build dynamic remote-cursor styles so labels show actual user names.
+  useEffect(() => {
+    if (!awarenessInstance || typeof document === "undefined") return;
+
+    const styleEl = document.createElement("style");
+    styleEl.setAttribute("data-yjs-presence", `${documentId}-${profile.id}`);
+    document.head.appendChild(styleEl);
+    presenceStyleRef.current = styleEl;
+
+    const updatePresenceStyles = () => {
+      const states = awarenessInstance.getStates();
+      let css = "";
+
+      states.forEach((state, clientId) => {
+        if (clientId === awarenessInstance.clientID) return;
+
+        const user = (state as { user?: { name?: string; color?: string } })?.user;
+        const name = user?.name?.trim() || "Student";
+        const color = user?.color || "#7dd3fc";
+        const safeName = escapeCssContent(name);
+        const labelTextColor = readableTextColor(color);
+
+        css += `.monaco-editor .yRemoteSelection-${clientId}{background-color:${hexToRgba(color, 0.2)} !important;}`;
+        css += `.monaco-editor .yRemoteSelectionHead-${clientId}{border-left:2px solid ${color} !important;}`;
+        css += `.monaco-editor .yRemoteSelectionHead-${clientId}::after{content:"${safeName}" !important;background:${color} !important;color:${labelTextColor} !important;}`;
+      });
+
+      styleEl.textContent = css;
+    };
+
+    updatePresenceStyles();
+    awarenessInstance.on("change", updatePresenceStyles);
+
+    return () => {
+      awarenessInstance.off("change", updatePresenceStyles);
+      if (presenceStyleRef.current) {
+        presenceStyleRef.current.remove();
+        presenceStyleRef.current = null;
+      }
+    };
+  }, [awarenessInstance, documentId, profile.id]);
 
   // Create binding when BOTH editor and yjsState are ready
   // Recreate only when the actual Y.Doc instance or editor changes

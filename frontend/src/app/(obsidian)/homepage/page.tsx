@@ -3,12 +3,23 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useActiveDocument } from "@/components/providers/active-document-provider";
-import { getDocuments, createDocument } from "@/lib/api";
+import {
+  getDocuments,
+  createDocument,
+  getActiveSessions,
+  getExecutionTelemetryAlerts,
+  getStuckSessions,
+  type ActiveSession,
+  type ExecutionTelemetryAlert,
+  type StuckSession,
+} from "@/lib/api";
+import { useProfile } from "@/hooks/useProfile";
 import type { Document } from "@/types/database";
-import { FileText, Plus, Loader2 } from "lucide-react";
+import { FileText, Plus, Loader2, GraduationCap, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -29,7 +40,6 @@ import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import InsightCard from "@/components/dashboard/InsightCard";
 import RecentFiles from "@/components/dashboard/RecentFiles";
 import ActiveSessions from "@/components/dashboard/ActiveSessions";
-import ConnectedEnvironments from "@/components/dashboard/ConnectedEnvironments";
 import QuickActions from "@/components/dashboard/QuickActions";
 
 export default function ObsidianHomePage() {
@@ -37,9 +47,16 @@ export default function ObsidianHomePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [sessions, setSessions] = useState<ActiveSession[]>([]);
+  const [alerts, setAlerts] = useState<ExecutionTelemetryAlert[]>([]);
+  const [stuckSessions, setStuckSessions] = useState<StuckSession[]>([]);
+  const [isSessionsLoading, setIsSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
 
   const { setActiveDocumentId } = useActiveDocument();
+  const { profile } = useProfile();
   const router = useRouter();
+  const isTeacher = profile?.role === "teacher";
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +77,63 @@ export default function ObsidianHomePage() {
     fetchDocs();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!isTeacher) {
+      setSessions([]);
+      setAlerts([]);
+      setStuckSessions([]);
+      setSessionsError(null);
+      setIsSessionsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadTelemetry() {
+      setIsSessionsLoading(true);
+      const results = await Promise.allSettled([
+        getActiveSessions(),
+        getExecutionTelemetryAlerts(),
+        getStuckSessions(),
+      ]);
+      if (cancelled) return;
+
+      if (results[0].status === "fulfilled") {
+        setSessions(results[0].value);
+        setSessionsError(null);
+      } else {
+        setSessions([]);
+        setSessionsError(
+          results[0].reason instanceof Error ? results[0].reason.message : "Failed to load sessions"
+        );
+      }
+
+      if (results[1].status === "fulfilled") {
+        setAlerts(results[1].value);
+      } else {
+        setAlerts([]);
+      }
+
+      if (results[2].status === "fulfilled") {
+        setStuckSessions(results[2].value);
+      } else {
+        setStuckSessions([]);
+      }
+
+      setIsSessionsLoading(false);
+    }
+
+    void loadTelemetry();
+    const intervalId = window.setInterval(() => {
+      void loadTelemetry();
+    }, 15_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [isTeacher]);
 
   function handleCardClick(doc: Document) {
     setActiveDocumentId(doc.id);
@@ -82,22 +156,33 @@ export default function ObsidianHomePage() {
 
         {/* InsightCard */}
         <div>
-          <InsightCard />
+          <InsightCard
+            audience={isTeacher ? "teacher" : "student"}
+            stuckCount={stuckSessions.length}
+            alertCount={alerts.length}
+            workspaceCount={documents.length}
+            isWorkspaceLoading={isLoading}
+          />
         </div>
 
-        {/* ActiveSessions — spans 2 cols on lg */}
-        <div className="lg:col-span-2">
-          <ActiveSessions sessions={[]} isLoading={false} error={null} />
-        </div>
+        {isTeacher ? (
+          <div className="lg:col-span-2">
+            <ActiveSessions
+              sessions={sessions}
+              isLoading={isSessionsLoading}
+              error={sessionsError}
+              stuckSessions={stuckSessions}
+            />
+          </div>
+        ) : (
+          <div className="lg:col-span-2">
+            <StudentLearningFocus workspaceCount={documents.length} />
+          </div>
+        )}
 
         {/* QuickActions */}
         <div>
           <QuickActions />
-        </div>
-
-        {/* ConnectedEnvironments */}
-        <div>
-          <ConnectedEnvironments />
         </div>
       </div>
 
@@ -190,6 +275,29 @@ export default function ObsidianHomePage() {
         </div>
       )}
     </section>
+  );
+}
+
+function StudentLearningFocus({ workspaceCount }: { workspaceCount: number }) {
+  return (
+    <Card className="border-white/10 bg-background">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+          <GraduationCap className="h-4 w-4" />
+          Learning Focus
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <Sparkles className="mt-0.5 h-3.5 w-3.5 text-emerald-400" />
+          <span>
+            {workspaceCount > 0
+              ? `You have ${workspaceCount} ${workspaceCount === 1 ? "workspace" : "workspaces"} ready. Continue from Recent Files and run your code often to catch issues early.`
+              : "Start by creating your first workspace, then use the AI tutor to understand each run failure before retrying."}
+          </span>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
