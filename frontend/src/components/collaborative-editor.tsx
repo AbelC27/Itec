@@ -3,6 +3,7 @@
 import { useRef, useEffect, useCallback, useState, type KeyboardEvent } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { MonacoBinding } from "y-monaco";
+import { Group, Panel, Separator } from "react-resizable-panels";
 import { useProfile } from "@/hooks/useProfile";
 import { useYjsSupabase } from "@/hooks/useYjsSupabase";
 import { useExecution } from "@/hooks/useExecution";
@@ -68,6 +69,30 @@ type CloudSyncState =
   | "pulling"
   | "conflict"
   | "error";
+
+function ResizeHandle({
+  direction,
+  className = "",
+}: {
+  direction: "horizontal" | "vertical";
+  className?: string;
+}) {
+  const isHorizontal = direction === "horizontal";
+
+  return (
+    <Separator
+      className={`group relative z-10 flex shrink-0 touch-none items-center justify-center bg-transparent transition-colors duration-150 hover:bg-primary/10 data-[separator=hover]:bg-primary/10 data-[separator=drag]:bg-primary/20 ${
+        isHorizontal ? "w-2 cursor-col-resize" : "h-2 cursor-row-resize"
+      } ${className}`.trim()}
+    >
+      <div
+        className={`rounded-full bg-border transition-colors duration-150 group-hover:bg-primary/70 group-data-[separator=drag]:bg-primary ${
+          isHorizontal ? "h-14 w-1" : "h-1 w-14"
+        }`}
+      />
+    </Separator>
+  );
+}
 
 export default function CollaborativeEditor({
   documentId,
@@ -673,8 +698,12 @@ function EditorWithYjs({
 
   return (
     <div className="h-full flex flex-col bg-background text-muted-foreground font-sans">
-      <main className="flex flex-1 min-h-0 overflow-hidden">
-        <section className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
+      <Group
+        orientation="horizontal"
+        className="flex min-h-0 flex-1 overflow-hidden"
+      >
+        <Panel defaultSize={72} minSize={45} className="min-w-0">
+          <section className="flex h-full min-w-0 flex-col bg-background">
           {/* ── Status Bar ─────────────────────────────────── */}
           <div className="flex items-center justify-between gap-4 px-6 py-2.5 bg-secondary/60 border-b border-border">
             <div className="flex items-center gap-3 flex-wrap">
@@ -803,41 +832,51 @@ function EditorWithYjs({
           </div>
 
           {/* ── Editor Surface ────────────────────────────── */}
-          <div className="flex-1 relative bg-background">
-            <div className="absolute inset-0">
-              <Editor
-                height="100%"
-                defaultLanguage={language}
-                onMount={handleEditorMount}
-                onChange={handleMonacoChange}
-                options={{
-                  readOnly: false,
-                  domReadOnly: readOnly,
-                  minimap: { enabled: false },
-                  quickSuggestions: !readOnly,
-                  suggestOnTriggerCharacters: true,
-                  parameterHints: { enabled: true },
-                  wordBasedSuggestions: "currentDocument",
-                  autoClosingBrackets: "always",
-                  autoClosingQuotes: "always",
-                  autoIndent: "full",
-                  formatOnPaste: true,
-                  formatOnType: true,
-                  tabCompletion: "on",
-                }}
-              />
-            </div>
-          </div>
-
-          {/* ── Security Alert ────────────────────────────── */}
           {execution.securityAlert && (
-            <div className="bg-red-500 text-white px-4 py-2.5 text-xs font-mono font-semibold">
+            <div className="bg-red-500 px-4 py-2.5 text-xs font-mono font-semibold text-white">
               {execution.securityAlert}
             </div>
           )}
 
+          <Group
+            orientation="vertical"
+            className="flex-1 min-h-0"
+          >
+            <Panel defaultSize={68} minSize={30} className="min-h-0">
+              <div className="relative h-full bg-background">
+                <div className="absolute inset-0">
+                  <Editor
+                    height="100%"
+                    defaultLanguage={language}
+                    onMount={handleEditorMount}
+                    onChange={handleMonacoChange}
+                    options={{
+                      readOnly: false,
+                      domReadOnly: readOnly,
+                      automaticLayout: true,
+                      minimap: { enabled: false },
+                      quickSuggestions: !readOnly,
+                      suggestOnTriggerCharacters: true,
+                      parameterHints: { enabled: true },
+                      wordBasedSuggestions: "currentDocument",
+                      autoClosingBrackets: "always",
+                      autoClosingQuotes: "always",
+                      autoIndent: "full",
+                      formatOnPaste: true,
+                      formatOnType: true,
+                      tabCompletion: "on",
+                    }}
+                  />
+                </div>
+              </div>
+            </Panel>
+
+            <ResizeHandle direction="vertical" />
+
+          {/* ── Security Alert ────────────────────────────── */}
           {/* ── Terminal / History Panel ──────────────────── */}
-          <div className="h-60 flex flex-col border-t border-border bg-background/70 backdrop-blur-xl">
+            <Panel defaultSize={32} minSize={18} className="min-h-0">
+              <div className="flex h-full flex-col border-t border-border bg-background/70 backdrop-blur-xl">
             <div className="flex items-center gap-4 px-4 py-2 text-[10px] font-extrabold tracking-widest uppercase bg-secondary/60">
               <span
                 className={`cursor-pointer pb-0.5 ${activeTab === "Terminal" ? "text-blue-400 border-b-2 border-blue-400" : "text-muted-foreground"}`}
@@ -1012,11 +1051,20 @@ function EditorWithYjs({
               </div>
             )}
 
-          </div>
+              </div>
+            </Panel>
+          </Group>
         </section>
 
         {/* ── AI Chat Panel ──────────────────────────────── */}
-        <aside className="w-80 flex flex-col border-l border-border bg-background/70 backdrop-blur-xl max-lg:hidden">
+        </Panel>
+        <ResizeHandle direction="horizontal" className="hidden lg:flex" />
+        <Panel
+          defaultSize={28}
+          minSize={20}
+          className="hidden min-w-[300px] max-w-[45%] lg:flex"
+        >
+          <aside className="flex h-full flex-col border-l border-border bg-background/70 backdrop-blur-xl">
           {/* Chat session tabs */}
           <div className="px-3 py-2 border-b border-border flex flex-col gap-1 max-h-[140px] overflow-y-auto">
             <div className="flex items-center justify-between mb-1">
@@ -1204,8 +1252,9 @@ function EditorWithYjs({
               </div>
             </div>
           </div>
-        </aside>
-      </main>
+          </aside>
+        </Panel>
+      </Group>
     </div>
   );
 }

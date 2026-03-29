@@ -48,10 +48,16 @@ export default function SignupPage() {
   };
 
   return (
-    <main className="relative min-h-screen bg-[#09090B] grid place-items-center p-6">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(39,39,42,0.5),_transparent_50%)]" />
+    <main className="relative grid min-h-screen place-items-center bg-background p-6">
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse at top, rgba(37, 99, 235, 0.18), transparent 55%)",
+        }}
+      />
 
-      <section className="animate-in fade-in-0 slide-in-from-bottom-4 duration-500 relative w-full max-w-md rounded-2xl border border-white/10 bg-[#09090B] p-8">
+      <section className="animate-in fade-in-0 slide-in-from-bottom-4 relative w-full max-w-md rounded-2xl border border-border bg-card p-8 duration-500">
         <header className="text-center mb-6">
           <h1 className="text-2xl font-bold text-foreground">Create account</h1>
           <p className="mt-2 text-sm text-muted-foreground">Start building with iTECity.</p>

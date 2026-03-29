@@ -1,0 +1,17 @@
+<svg width="180" height="72" viewBox="0 0 180 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="180" height="72" rx="8" fill="currentColor" fill-opacity="0.1"/>
+  
+  <!-- iTECity Text -->
+  <text x="90" y="45" font-family="Arial, sans-serif" font-size="24" font-weight="bold" text-anchor="middle" fill="currentColor">
+    iTECity
+  </text>
+  
+  <!-- Decorative element - Tech icon -->
+  <circle cx="20" cy="36" r="8" stroke="currentColor" stroke-width="2" fill="none"/>
+  <path d="M20 28 L20 44 M12 36 L28 36" stroke="currentColor" stroke-width="2"/>
+  
+  <!-- Decorative element - Education icon -->
+  <path d="M160 28 L170 32 L160 36 L150 32 Z" fill="currentColor"/>
+  <path d="M150 32 L150 40 L160 44 L170 40 L170 32" stroke="currentColor" stroke-width="1.5" fill="none"/>
+</svg>

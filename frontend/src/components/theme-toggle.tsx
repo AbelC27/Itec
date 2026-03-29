@@ -1,6 +1,7 @@
 "use client";
 
-import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
+import { useTheme } from "@/components/providers/theme-provider";
 import { Button } from "@/components/ui/button";
 
 function SunIcon() {
@@ -33,15 +34,36 @@ function MoonIcon() {
 
 export function ThemeToggle() {
     const { resolvedTheme, setTheme } = useTheme();
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        // Avoid rendering the wrong icon before next-themes resolves.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setMounted(true);
+    }, []);
+
+    if (!mounted) {
+        return (
+            <Button
+                variant="default"
+                size="icon"
+                aria-label="Toggle theme"
+                disabled
+            >
+                <span className="h-5 w-5" aria-hidden="true" />
+            </Button>
+        );
+    }
 
     const isDark = resolvedTheme === "dark";
 
     return (
         <Button
-            variant="ghost"
+            variant="default"
             size="icon"
             onClick={() => setTheme(isDark ? "light" : "dark")}
             aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
+            title={`Switch to ${isDark ? "light" : "dark"} mode`}
         >
             {isDark ? <SunIcon /> : <MoonIcon />}
         </Button>

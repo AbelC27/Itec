@@ -1,36 +1,82 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #09090B;
-  --color-foreground: #fafafa;
-  --color-card: #09090B;
-  --color-card-foreground: #fafafa;
-  --color-popover: #09090B;
-  --color-popover-foreground: #fafafa;
-  --color-primary: #fafafa;
-  --color-primary-foreground: #18181B;
-  --color-secondary: #27272A;
-  --color-secondary-foreground: #fafafa;
-  --color-muted: #27272A;
-  --color-muted-foreground: #a1a1aa;
-  --color-accent: #27272A;
-  --color-accent-foreground: #fafafa;
-  --color-destructive: #7f1d1d;
-  --color-destructive-foreground: #fafafa;
-  --color-border: rgba(255, 255, 255, 0.1);
-  --color-input: #27272A;
-  --color-ring: #d4d4d8;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+:root {
+  --background: #06101f;
+  --foreground: #eef4ff;
+  --card: #0c1728;
+  --card-foreground: #eef4ff;
+  --popover: #0c1728;
+  --popover-foreground: #eef4ff;
+  --primary: #eef4ff;
+  --primary-foreground: #0c1728;
+  --secondary: #13233a;
+  --secondary-foreground: #dbeafe;
+  --muted: #112038;
+  --muted-foreground: #9fb0ca;
+  --accent: #18304d;
+  --accent-foreground: #eef4ff;
+  --destructive: #b91c1c;
+  --destructive-foreground: #fafafa;
+  --border: rgba(148, 163, 184, 0.22);
+  --input: #13233a;
+  --ring: #7dd3fc;
+}
+
+.light {
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #2563eb;
+  --primary-foreground: #fafafa;
+  --secondary: #dbeafe;
+  --secondary-foreground: #1d4ed8;
+  --muted: #eff6ff;
+  --muted-foreground: #64748b;
+  --accent: #eff6ff;
+  --accent-foreground: #1d4ed8;
+  --destructive: #dc2626;
+  --destructive-foreground: #fafafa;
+  --border: rgba(37, 99, 235, 0.16);
+  --input: #f8fbff;
+  --ring: #2563eb;
+}
+
 body {
-  background: var(--color-background);
-  color: var(--color-foreground);
+  background: var(--background);
+  color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
   transition: background-color 180ms ease, color 180ms ease;
 }
